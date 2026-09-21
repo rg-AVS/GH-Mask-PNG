@@ -16,7 +16,7 @@ src/
   mask/mask_trace       raster -> contours -> shapes      (PNG -> mask)
   mask/mask_render      shapes -> raster                  (mask -> PNG)
 tools/                  one small CLI per job, thin glue over the above
-gui/                    a one-button window: pick a PNG, get a Masks.xml
+gui/                    one button: pick a PNG, get a Masks.xml
 tests/                  the self-checks
 ```
 
@@ -35,12 +35,14 @@ Debian/Ubuntu). Nothing else in the project needs Python at all.
 
 ## The window
 
-`make gui` opens one screen with one button. Pick a PNG and a `Masks.xml` is
-written into the same folder as the image, with a preview of what the mask
-covers. There is nothing to configure: the image is taken at face value, so
-whatever size it is, is the size the mask is for, and one mask unit is one
-pixel at that size. If a `Masks.xml` is already there, it asks before
-replacing it.
+`make gui` opens one screen with one button and one line of feedback. Pick a
+PNG; a `Masks.xml` is written into the same folder as the image. There is
+nothing to configure -- the image is taken at face value, so whatever size it
+is, is the size the mask is for, and one mask unit is one pixel at that size.
+
+A `Masks.xml` already in that folder is moved aside to `Masks.backup.xml`
+rather than being replaced, and only the first time, so a hand-written file
+is never lost and reconverting the same folder never nags.
 
 Everything else -- the other candidate mappings, the threshold, the corner
 smoothing -- stays on the command line, for when something needs pinning

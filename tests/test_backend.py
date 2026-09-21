@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """test_backend.py -- headless checks for gui/backend.py.
 
-The GUI is split so this file can exist: everything below runs without a
-display, so the window code stays the only untested part and it is kept
-thin enough to review by eye.
-
     python3 tests/test_backend.py
 """
 
@@ -33,110 +29,73 @@ def section(name):
 
 def main():
     root = backend.REPO_ROOT
-    section("Tools are built")
-    missing = backend.missing_tools(root)
-    check("all binaries present", not missing, missing)
-    if missing:
+    section("The tool is built")
+    check("png2mask found", backend.is_built(root), backend.tool_path("png2mask", root))
+    if not backend.is_built(root):
         print("\nbuild first: make")
         return 1
 
     section("PNG header reading")
-    check("1920x1080", backend.png_size(os.path.join(root, "testset/01_1920x1080_native.png")) == (1920, 1080))
-    check("3840x1080", backend.png_size(os.path.join(root, "testset/04_3840x1080_native.png")) == (3840, 1080))
-    check("1024x768", backend.png_size(os.path.join(root, "testset/07_1024x768_native.png")) == (1024, 768))
+    check("1920x1080", backend.png_size(os.path.join(root, "testset/01_1920x1080_native.png"))
+          == (1920, 1080))
+    check("3840x1080", backend.png_size(os.path.join(root, "testset/04_3840x1080_native.png"))
+          == (3840, 1080))
     try:
         backend.png_size(os.path.join(root, "testset/MANIFEST.txt"))
         check("non-PNG is rejected", False)
-    except backend.ToolError:
-        check("non-PNG is rejected", True)
+    except backend.ToolError as e:
+        check("non-PNG is rejected", "not a PNG" in str(e), str(e))
 
-    section("mask_diff output parsing")
-    parsed = backend.parse_diff("1024x768  max_diff=255  mean_diff=10.876  "
-                                "pixels_over_tolerance=36905 (4.69271%)\nMISMATCH")
-    check("max_diff", parsed["max_diff"] == 255, parsed)
-    check("percent", abs(parsed["percent"] - 4.69271) < 1e-6, parsed)
-    check("not a match", parsed["match"] is False, parsed)
-    ok = backend.parse_diff("1024x768  max_diff=0  mean_diff=0  "
-                            "pixels_over_tolerance=0 (0%)\nMATCH (within tolerance 0)")
-    check("match detected", ok["match"] and ok["max_diff"] == 0, ok)
-    sizes = backend.parse_diff("DIFFERENT SIZE  1024x768 vs 1920x1080")
-    check("size mismatch detected", sizes["size_mismatch"], sizes)
-    check("unparseable output survives", backend.parse_diff("nonsense")["raw"] == "nonsense")
-
-    section("Verdict wording")
-    check("match reads as cancelling", backend.verdict(ok)[1] == "ok")
-    check("big difference reads as wrong", backend.verdict(parsed)[1] == "err")
-    near = backend.parse_diff("1x1  max_diff=1  mean_diff=0.1  pixels_over_tolerance=1 (0.16%)\nMISMATCH")
-    check("edge-only difference reads as near", backend.verdict(near)[1] == "warn")
-    check("size mismatch reads as error", backend.verdict(sizes)[1] == "err")
+    section("Reading png2mask's summary")
+    check("counts parse", backend.parse_counts("x, 2 shape(s), 37 node(s))") == (2, 37))
+    check("counts survive nonsense", backend.parse_counts("nothing here") == (0, 0))
 
     tmp = tempfile.mkdtemp(prefix="maskgui-test-")
     try:
-        section("Round-trip, every mapping")
-        for mapping in backend.MAPPINGS:
-            work = os.path.join(tmp, mapping)
-            res = backend.round_trip(os.path.join(root, "testset/01_1920x1080_native.png"),
-                                     work, mapping=mapping, root=root)
-            check("map=%s renders identically" % mapping, res["match"], res["raw"])
-            check("map=%s wrote a mask" % mapping, os.path.isfile(res["mask_xml"]))
-
-        section("Test set generation")
-        out = os.path.join(tmp, "set")
-        backend.generate_testset(out, root=root)
-        pngs = sorted(f for f in os.listdir(out) if f.endswith(".png"))
-        check("9 PNGs", len(pngs) == 9, pngs)
-        check("Masks.xml written", os.path.isfile(os.path.join(out, "Masks.xml")))
-        check("MANIFEST written", os.path.isfile(os.path.join(out, "MANIFEST.txt")))
-
-        section("Each generated pair cancels")
-        for png in pngs:
-            name = png[:-4]
-            index, res_txt, mapping = name.split("_")
-            w, h = (int(v) for v in res_txt.split("x"))
-            dest = os.path.join(tmp, "render", name)
-            os.makedirs(dest, exist_ok=True)
-            backend.mask_to_png(os.path.join(out, "Masks.xml"), dest, w, h,
-                                mapping=mapping, index=str(int(index)), root=root)
-            result = backend.compare(os.path.join(out, png), os.path.join(dest, png), root=root)
-            check("%s cancels" % name, result["match"], result["raw"])
-
-        section("convert_beside: the one thing the window does")
-        work = os.path.join(tmp, "beside")
+        work = os.path.join(tmp, "show")
         os.makedirs(work)
         png = os.path.join(work, "shape.png")
         shutil.copy(os.path.join(root, "testset/01_1920x1080_native.png"), png)
-        res = backend.convert_beside(png, root=root, preview_dir=os.path.join(work, "prev"))
-        check("wrote Masks.xml next to the image",
-              res["xml"] == os.path.join(work, "Masks.xml") and os.path.isfile(res["xml"]))
-        check("reported the image size", (res["width"], res["height"]) == (1920, 1080), res)
-        check("traced the three rings", res["shapes"] == 3, res)
-        check("counted the points", res["nodes"] == 14, res)
-        check("made a preview", res["preview"] and os.path.isfile(res["preview"]), res)
-        check("mask_path_for agrees", backend.mask_path_for(png) == res["xml"])
-        check("counts parse", backend.parse_counts("x, 2 shape(s), 37 node(s))") == (2, 37))
-        check("counts survive nonsense", backend.parse_counts("nothing here") == (0, 0))
 
-        preview = res["preview"]
-        check("the preview cancels the image",
-              backend.compare(png, preview, root=root)["percent"] < 1.0)
+        section("convert_beside writes next to the image")
+        check("mask_path_for agrees", backend.mask_path_for(png)
+              == os.path.join(work, "Masks.xml"))
+        result = backend.convert_beside(png, root=root)
+        check("Masks.xml is in the image's folder",
+              result["xml"] == os.path.join(work, "Masks.xml") and os.path.isfile(result["xml"]))
+        check("reported the image size", (result["width"], result["height"]) == (1920, 1080),
+              result)
+        check("traced the three rings", result["shapes"] == 3, result)
+        check("counted the points", result["nodes"] == 14, result)
+        check("nothing backed up on a fresh folder", result["backup"] is None, result)
 
-        section("Errors are reported, not swallowed")
+        section("An existing mask is kept, once")
+        with open(result["xml"], "w") as f:
+            f.write("<Masks><!-- hand written --></Masks>")
+        second = backend.convert_beside(png, root=root)
+        check("the old file was moved aside", second["backup"]
+              == os.path.join(work, "Masks.backup.xml"), second)
+        with open(second["backup"]) as f:
+            check("and it is the hand-written one", "hand written" in f.read())
+        with open(second["xml"]) as f:
+            check("the new mask replaced it", "<Shape" in f.read())
+
+        third = backend.convert_beside(png, root=root)
+        check("a later run does not clobber the backup", third["backup"] is None, third)
+        with open(os.path.join(work, "Masks.backup.xml")) as f:
+            check("the hand-written file is still safe", "hand written" in f.read())
+
+        section("Failures are reported, not swallowed")
         try:
             backend.convert_beside(os.path.join(tmp, "not-there.png"), root=root)
             check("missing file raises", False)
         except backend.ToolError as e:
             check("missing file raises", "not there" in str(e), str(e))
         try:
-            backend.png_to_mask(os.path.join(tmp, "nope.png"), os.path.join(tmp, "x.xml"), root=root)
-            check("missing input raises", False)
+            backend.convert_beside(os.path.join(root, "testset/MANIFEST.txt"), root=root)
+            check("non-PNG raises", False)
         except backend.ToolError as e:
-            check("missing input raises", "cannot open" in str(e).lower(), str(e))
-        try:
-            backend.png_to_mask(os.path.join(root, "testset/07_1024x768_native.png"),
-                                os.path.join(tmp, "y.xml"), mapping="sideways", root=root)
-            check("bad mapping raises", False)
-        except backend.ToolError as e:
-            check("bad mapping raises", "unknown mapping" in str(e), str(e))
+            check("non-PNG raises", "not a PNG" in str(e), str(e))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

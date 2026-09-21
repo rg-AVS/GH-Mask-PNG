@@ -104,6 +104,8 @@ class Tk(Widget):
             self._title = text
         return self._title
     def minsize(self, *a): pass
+    def update_idletasks(self): pass
+    def update(self): pass
     def option_add(self, *a, **kw): pass
     def after(self, delay, callback=None, *args):
         if callback is not None:
@@ -145,19 +147,6 @@ def _make_ttk():
     return mod
 
 
-def _make_messagebox():
-    mod = types.ModuleType("tkinter.messagebox")
-    mod.answer = True          # what the next askyesno returns; tests set it
-    mod.asked = []             # every question asked, for the tests to read
-    def askyesno(title="", message="", **kw):
-        mod.asked.append((title, message))
-        return mod.answer
-    mod.askyesno = askyesno
-    mod.showinfo = lambda *a, **kw: None
-    mod.showerror = lambda *a, **kw: None
-    return mod
-
-
 def _make_filedialog():
     mod = types.ModuleType("tkinter.filedialog")
     mod.askopenfilename = lambda **kw: ""
@@ -177,14 +166,11 @@ def install():
         setattr(tk, name, globals()[name])
     ttk = _make_ttk()
     filedialog = _make_filedialog()
-    messagebox = _make_messagebox()
     tk.ttk = ttk
     tk.filedialog = filedialog
-    tk.messagebox = messagebox
     sys.modules["tkinter"] = tk
     sys.modules["tkinter.ttk"] = ttk
     sys.modules["tkinter.filedialog"] = filedialog
-    sys.modules["tkinter.messagebox"] = messagebox
     return tk
 
 
