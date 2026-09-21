@@ -64,6 +64,12 @@ if [ "$rings" -eq 3 ]
 say "Test set is self-consistent (each PNG cancels its own mask)"
 ./tests/check_testset.sh testset || fail=1
 
+say "GUI backend (headless)"
+python3 tests/test_backend.py >/dev/null 2>&1 && pass "gui/backend.py" || bad "gui/backend.py"
+
+say "GUI wiring (against a stand-in tkinter)"
+python3 tests/test_gui.py >/dev/null 2>&1 && pass "gui/mask_gui.py" || bad "gui/mask_gui.py"
+
 printf '\n'
 if [ $fail -eq 0 ]; then echo "ALL TESTS PASSED"; exit 0; fi
 echo "TESTS FAILED"; exit 1

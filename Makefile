@@ -56,5 +56,12 @@ testset: $(BUILD)/gen_testset
 gui:
 	python3 gui/mask_gui.py
 
+# The Python checks alone -- handy while working on the GUI, since they need
+# no display and no tkinter.
+.PHONY: test-gui
+test-gui: all
+	python3 tests/test_backend.py
+	python3 tests/test_gui.py
+
 clean:
 	rm -rf $(BUILD)

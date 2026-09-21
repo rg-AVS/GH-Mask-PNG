@@ -1,3 +1,9 @@
+> **Historical.** This is the original proof-of-concept write-up, from before
+> the PNG -> mask direction existed. Paths, file sizes and the list of open
+> questions have all moved on; see the top-level `README.md` and
+> `COORDINATES.md` for the current state. Kept because the reasoning about
+> *why* the modules are split the way they are still applies.
+
 # Hippotizer mask tools -- modular C++ proof of concept
 
 Split out of the original single-file `mask2png.cpp` POC into separate,
