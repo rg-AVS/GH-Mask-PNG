@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """test_gui.py -- exercises gui/mask_gui.py against a stand-in tkinter.
 
-Covers the wiring, not the drawing: that the window builds, that the fields
-the handlers read are the ones the tabs write, that pressing a button with
-nothing filled in gives a usable message instead of a traceback, and that a
-real conversion runs end to end and lands in the right place.
+Covers the wiring, not the drawing: that the window builds, that choosing a
+file runs a real conversion and puts Masks.xml beside the image, that an
+existing mask file is not replaced without being asked, and that a bad image
+is reported in words rather than as a traceback.
 
     python3 tests/test_gui.py
 """
 
 import os
+import shutil
+import struct
 import sys
+import tempfile
 import time
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -24,7 +28,10 @@ sys.path.insert(0, os.path.join(ROOT, "gui"))
 import backend    # noqa: E402
 import mask_gui   # noqa: E402
 
+from tkinter import filedialog, messagebox  # noqa: E402  (the stand-ins)
+
 FAILED = []
+SAMPLE = os.path.join(ROOT, "testset", "01_1920x1080_native.png")
 
 
 def check(label, condition, detail=""):
@@ -39,7 +46,7 @@ def section(name):
     print("\n=== %s ===" % name)
 
 
-def settle(app, timeout=60.0):
+def settle(app, timeout=120.0):
     """Runs the queue drain by hand until the worker thread has reported."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -50,76 +57,116 @@ def settle(app, timeout=60.0):
     return False
 
 
+def black_png(path, width=64, height=64):
+    """An all-black PNG, so the 'nothing to trace' path can be exercised."""
+    raw = b"".join(b"\x00" + b"\x00" * width for _ in range(height))
+    def chunk(tag, data):
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)))
+        f.write(chunk(b"IDAT", zlib.compress(raw)))
+        f.write(chunk(b"IEND", b""))
+    return path
+
+
 def main():
     section("The window builds")
     app = mask_gui.MaskGui()
-    check("title is set", app.title() == "Hippotizer Mask Tools", app.title())
-    check("widgets were created", len(faketk.CREATED) > 40, len(faketk.CREATED))
+    check("title is set", app.title() == "PNG to Hippotizer Mask", app.title())
+    check("widgets were created", len(faketk.CREATED) > 8, len(faketk.CREATED))
     # Bound methods are new objects on each attribute access, so compare by
     # equality rather than identity.
     check("queue drain is scheduled", any(c == app._drain for _d, c, _a in faketk.SCHEDULED))
-
-    section("Defaults are sane")
-    check("mapping defaults to native", app.p2m_map.get() == "native", app.p2m_map.get())
-    check("threshold defaults to 128", app.p2m_threshold.get() == 128)
-    check("every mapping has help text",
-          all(m in backend.MAPPING_HELP for m in backend.MAPPINGS))
-    check("test-set folder pre-filled", app.ts_dir.get().endswith("testset"), app.ts_dir.get())
     check("tools were found", "not built" not in app.status.cget("text"),
           app.status.cget("text"))
+    check("the button is available", "disabled" not in app.button.state())
 
-    section("Empty fields ask, they do not crash")
-    for label, handler in (("PNG to mask", app._do_png_to_mask),
-                           ("round trip", app._do_round_trip),
-                           ("mask to PNG", app._do_mask_to_png),
-                           ("bounds", app._do_bounds),
-                           ("compare", app._do_compare)):
-        handler()
-        text = app.status.cget("text")
-        check("%s asks for input" % label, text.startswith("Fill in"), text)
+    section("There is nothing to configure")
+    for gone in ("p2m_map", "m2p_map", "p2m_threshold", "p2m_simplify", "ts_dir"):
+        check("no %s field" % gone, not hasattr(app, gone))
 
-    section("Bad input is reported in words")
-    app.m2p_xml.set(os.path.join(ROOT, "testset/Masks.xml"))
-    app.m2p_dir.set(app.work_dir)
-    app.m2p_res.set("lots")
-    app._do_mask_to_png()
-    check("bad size is explained", "1920x1080" in app.status.cget("text"),
-          app.status.cget("text"))
+    section("Cancelling the file picker does nothing")
+    filedialog.answer = ""
+    before = app.status.cget("text")
+    app._choose()
+    check("no work started", not app.busy)
+    check("status unchanged", app.status.cget("text") == before)
 
-    section("A real conversion runs end to end")
-    app.p2m_png.set(os.path.join(ROOT, "testset/01_1920x1080_native.png"))
-    app.p2m_xml.set(os.path.join(app.work_dir, "from_gui.xml"))
-    app._do_png_to_mask()
-    check("conversion reported", settle(app))
-    check("mask file written", os.path.isfile(os.path.join(app.work_dir, "from_gui.xml")))
-    check("status is not an error", app.status.cget("foreground") != mask_gui.ERR,
-          app.status.cget("text"))
+    tmp = tempfile.mkdtemp(prefix="maskgui-test-")
+    try:
+        section("Choosing a PNG writes Masks.xml beside it")
+        work = os.path.join(tmp, "show")
+        os.makedirs(work)
+        png = os.path.join(work, "Star for Mask.png")
+        shutil.copy(os.path.join(ROOT, "Ref", "Star for Mask.png"), png)
 
-    section("The round-trip button reaches a verdict")
-    app._do_round_trip()
-    check("round trip reported", settle(app))
-    check("verdict says it cancels", app.status.cget("foreground") == mask_gui.OK,
-          app.status.cget("text"))
-    check("preview was set", app._preview_ref is not None)
+        filedialog.answer = png
+        messagebox.asked = []
+        app._choose()
+        check("button greys out while working", "disabled" in app.button.state())
+        check("conversion reported", settle(app))
+        check("button comes back", "disabled" not in app.button.state())
+        check("Masks.xml is next to the image", os.path.isfile(os.path.join(work, "Masks.xml")))
+        check("nothing asked on a fresh folder", messagebox.asked == [], messagebox.asked)
+        check("reported as done", app.status.cget("foreground") == mask_gui.OK,
+              app.status.cget("text"))
+        check("details name the file", "Star for Mask.png" in app.details.cget("text"),
+              app.details.cget("text"))
+        check("details name the size", "1920 x 1080" in app.details.cget("text"),
+              app.details.cget("text"))
+        check("preview was set", app._preview_ref is not None)
 
-    section("Render reaches the preview")
-    app.m2p_res.set("1920x1080")
-    app.m2p_index.set("1")
-    app._do_mask_to_png()
-    check("render reported", settle(app))
-    check("status is not an error", app.status.cget("foreground") != mask_gui.ERR,
-          app.status.cget("text"))
+        section("An existing Masks.xml is not replaced without asking")
+        with open(os.path.join(work, "Masks.xml"), "w") as f:
+            f.write("<Masks><!-- hand written --></Masks>")
+        messagebox.asked = []
+        messagebox.answer = False
+        app._choose()
+        check("it asked first", len(messagebox.asked) == 1, messagebox.asked)
+        check("no work started", not app.busy)
+        with open(os.path.join(work, "Masks.xml")) as f:
+            kept = f.read()
+        check("the existing file survived", "hand written" in kept)
+        check("said so", "Left the existing mask alone." in app.status.cget("text"),
+              app.status.cget("text"))
 
-    section("A failing tool surfaces its message")
-    app.p2m_png.set(os.path.join(ROOT, "testset/MANIFEST.txt"))
-    app._do_png_to_mask()
-    check("failure reported", settle(app))
-    check("shown as an error", app.status.cget("foreground") == mask_gui.ERR,
-          app.status.cget("text"))
+        messagebox.asked = []
+        messagebox.answer = True
+        app._choose()
+        check("saying yes converts", settle(app))
+        with open(os.path.join(work, "Masks.xml")) as f:
+            replaced = f.read()
+        check("the file was replaced", "hand written" not in replaced)
 
-    section("Preview never takes the window down")
-    app._show_preview(os.path.join(ROOT, "testset/MANIFEST.txt"), "not an image")
-    check("non-image handled", app.preview.cget("text") == "No preview available.")
+        section("An image with nothing in it says so")
+        blank_dir = os.path.join(tmp, "blank")
+        os.makedirs(blank_dir)
+        filedialog.answer = black_png(os.path.join(blank_dir, "blank.png"))
+        messagebox.answer = True
+        app._choose()
+        check("conversion reported", settle(app))
+        check("warned, not errored", app.status.cget("foreground") == mask_gui.WARN,
+              app.status.cget("text"))
+        check("says what to do", "invert" in app.status.cget("text").lower(),
+              app.status.cget("text"))
+
+        section("A file that is not an image is reported in words")
+        filedialog.answer = os.path.join(ROOT, "testset", "MANIFEST.txt")
+        app._choose()
+        check("failure reported", settle(app))
+        check("shown as an error", app.status.cget("foreground") == mask_gui.ERR,
+              app.status.cget("text"))
+        check("no traceback in the message", "Traceback" not in app.status.cget("text"),
+              app.status.cget("text"))
+        check("button came back", "disabled" not in app.button.state())
+
+        section("Preview never takes the window down")
+        app._show_preview(os.path.join(ROOT, "testset", "MANIFEST.txt"))
+        check("non-image handled", app.preview.cget("text") == "No preview available.")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
     print()
     if FAILED:

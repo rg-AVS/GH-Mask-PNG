@@ -146,6 +146,59 @@ def round_trip(png, work_dir, mapping="native", threshold=128, root=REPO_ROOT):
     return result
 
 
+def convert_beside(png, root=REPO_ROOT, preview_dir=None):
+    """Traces `png` and writes Masks.xml into the same folder as the image.
+
+    This is the whole of what the window does. The mapping is fixed to native
+    (1 unit = 1 pixel at the image's own size) and the image is taken at face
+    value -- whatever resolution it is, is the resolution the mask is for.
+
+    Returns a dict describing what happened, including a rendered-back preview
+    so the result can be seen rather than taken on trust.
+    """
+    png = os.path.abspath(png)
+    if not os.path.isfile(png):
+        raise ToolError("%s is not there any more." % os.path.basename(png))
+
+    width, height = png_size(png)
+    folder = os.path.dirname(png)
+    xml = os.path.join(folder, "Masks.xml")
+    name = os.path.splitext(os.path.basename(png))[0]
+
+    output = png_to_mask(png, xml, mapping="native", name=name, root=root)
+    shapes, nodes = parse_counts(output)
+
+    result = {"png": png, "xml": xml, "folder": folder, "width": width, "height": height,
+              "shapes": shapes, "nodes": nodes, "raw": output, "preview": None}
+
+    # Render it straight back so the window can show what the mask actually
+    # covers. A preview is a convenience, never the result -- if it fails, the
+    # mask is still written and the conversion still succeeded.
+    if preview_dir:
+        try:
+            os.makedirs(preview_dir, exist_ok=True)
+            mask_to_png(xml, preview_dir, width, height, "native", root=root)
+            candidate = os.path.join(preview_dir, re.sub(r"[ /\\:]", "_", name) + ".png")
+            if os.path.isfile(candidate):
+                result["preview"] = candidate
+        except (ToolError, OSError):
+            pass
+    return result
+
+
+def mask_path_for(png):
+    """Where convert_beside would write, without doing anything."""
+    return os.path.join(os.path.dirname(os.path.abspath(png)), "Masks.xml")
+
+
+def parse_counts(output):
+    """Shape and node counts out of png2mask's summary line."""
+    shapes = re.search(r"(\d+) shape\(s\)", output)
+    nodes = re.search(r"(\d+) node\(s\)", output)
+    return (int(shapes.group(1)) if shapes else 0,
+            int(nodes.group(1)) if nodes else 0)
+
+
 # --- helpers ---------------------------------------------------------------
 
 def png_size(path):

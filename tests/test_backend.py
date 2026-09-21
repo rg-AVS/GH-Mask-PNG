@@ -100,7 +100,32 @@ def main():
             result = backend.compare(os.path.join(out, png), os.path.join(dest, png), root=root)
             check("%s cancels" % name, result["match"], result["raw"])
 
+        section("convert_beside: the one thing the window does")
+        work = os.path.join(tmp, "beside")
+        os.makedirs(work)
+        png = os.path.join(work, "shape.png")
+        shutil.copy(os.path.join(root, "testset/01_1920x1080_native.png"), png)
+        res = backend.convert_beside(png, root=root, preview_dir=os.path.join(work, "prev"))
+        check("wrote Masks.xml next to the image",
+              res["xml"] == os.path.join(work, "Masks.xml") and os.path.isfile(res["xml"]))
+        check("reported the image size", (res["width"], res["height"]) == (1920, 1080), res)
+        check("traced the three rings", res["shapes"] == 3, res)
+        check("counted the points", res["nodes"] == 14, res)
+        check("made a preview", res["preview"] and os.path.isfile(res["preview"]), res)
+        check("mask_path_for agrees", backend.mask_path_for(png) == res["xml"])
+        check("counts parse", backend.parse_counts("x, 2 shape(s), 37 node(s))") == (2, 37))
+        check("counts survive nonsense", backend.parse_counts("nothing here") == (0, 0))
+
+        preview = res["preview"]
+        check("the preview cancels the image",
+              backend.compare(png, preview, root=root)["percent"] < 1.0)
+
         section("Errors are reported, not swallowed")
+        try:
+            backend.convert_beside(os.path.join(tmp, "not-there.png"), root=root)
+            check("missing file raises", False)
+        except backend.ToolError as e:
+            check("missing file raises", "not there" in str(e), str(e))
         try:
             backend.png_to_mask(os.path.join(tmp, "nope.png"), os.path.join(tmp, "x.xml"), root=root)
             check("missing input raises", False)

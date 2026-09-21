@@ -75,6 +75,18 @@ class Widget:
     def delete(self, *a, **kw): pass
     def focus_set(self): pass
     def winfo_children(self): return list(self.children)
+    def state(self, statespec=None):
+        """ttk's enable/disable. Recorded so tests can check the button is
+        greyed out while a conversion is running."""
+        if statespec is None:
+            return tuple(self.options.get("_state", ()))
+        current = set(self.options.get("_state", ()))
+        for flag in statespec:
+            current.discard(flag.lstrip("!"))
+            if not flag.startswith("!"):
+                current.add(flag)
+        self.options["_state"] = tuple(sorted(current))
+        return self.options["_state"]
     def add(self, child, **kw): self.children.append(child)
     def invoke(self):
         """Presses a button, the way a person would."""
@@ -133,11 +145,26 @@ def _make_ttk():
     return mod
 
 
+def _make_messagebox():
+    mod = types.ModuleType("tkinter.messagebox")
+    mod.answer = True          # what the next askyesno returns; tests set it
+    mod.asked = []             # every question asked, for the tests to read
+    def askyesno(title="", message="", **kw):
+        mod.asked.append((title, message))
+        return mod.answer
+    mod.askyesno = askyesno
+    mod.showinfo = lambda *a, **kw: None
+    mod.showerror = lambda *a, **kw: None
+    return mod
+
+
 def _make_filedialog():
     mod = types.ModuleType("tkinter.filedialog")
     mod.askopenfilename = lambda **kw: ""
     mod.asksaveasfilename = lambda **kw: ""
     mod.askdirectory = lambda **kw: ""
+    mod.answer = ""            # what the next askopenfilename returns
+    mod.askopenfilename = lambda **kw: mod.answer
     return mod
 
 
@@ -150,11 +177,14 @@ def install():
         setattr(tk, name, globals()[name])
     ttk = _make_ttk()
     filedialog = _make_filedialog()
+    messagebox = _make_messagebox()
     tk.ttk = ttk
     tk.filedialog = filedialog
+    tk.messagebox = messagebox
     sys.modules["tkinter"] = tk
     sys.modules["tkinter.ttk"] = ttk
     sys.modules["tkinter.filedialog"] = filedialog
+    sys.modules["tkinter.messagebox"] = messagebox
     return tk
 
 
