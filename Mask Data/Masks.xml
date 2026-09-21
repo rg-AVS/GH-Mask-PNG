@@ -1,0 +1,10 @@
+<Masks>
+<Mask index="1" name="LiveMask" invert="false" alpha="false" Blur="0" showpoints="false" xres="1024" yres="768">
+<Shape Level="255" guid="{62E2D463-A63B-4FDB-B9CF-DC4CFAA33827}" angle="0" locked="false" Outline="false" linewidth="1" gamma="2.200000000000000177635683940025" infill="false" hvmix="127" hblend="127" vblend="127">
+<Node PosX="-350.20379638671875" PosY="-434.8330078125" InHandleX="-350.20379638671875" InHandleY="-434.8330078125" OutHandleX="-350.20379638671875" OutHandleY="-434.8330078125" Type="1" FeatherPosX="-350.20379638671875" FeatherPosY="-434.8330078125" FeatherInHandleX="-350.20379638671875" FeatherInHandleY="-434.8330078125" FeatherOutHandleX="-350.20379638671875" FeatherOutHandleY="-434.8330078125" FeatherType="1"/>
+<Node PosX="458.854400634765625" PosY="-434.8330078125" InHandleX="458.854400634765625" InHandleY="-434.8330078125" OutHandleX="458.854400634765625" OutHandleY="-434.8330078125" Type="1" FeatherPosX="458.854400634765625" FeatherPosY="-434.8330078125" FeatherInHandleX="458.854400634765625" FeatherInHandleY="-434.8330078125" FeatherOutHandleX="458.854400634765625" FeatherOutHandleY="-434.8330078125" FeatherType="1"/>
+<Node PosX="458.854400634765625" PosY="374.226806640625" InHandleX="458.854400634765625" InHandleY="374.226806640625" OutHandleX="458.854400634765625" OutHandleY="374.226806640625" Type="1" FeatherPosX="458.854400634765625" FeatherPosY="374.226806640625" FeatherInHandleX="458.854400634765625" FeatherInHandleY="374.226806640625" FeatherOutHandleX="458.854400634765625" FeatherOutHandleY="374.226806640625" FeatherType="1"/>
+<Node PosX="-350.20379638671875" PosY="374.226806640625" InHandleX="-350.20379638671875" InHandleY="374.226806640625" OutHandleX="-350.20379638671875" OutHandleY="374.226806640625" Type="1" FeatherPosX="-350.20379638671875" FeatherPosY="374.226806640625" FeatherInHandleX="-350.20379638671875" FeatherInHandleY="374.226806640625" FeatherOutHandleX="-350.20379638671875" FeatherOutHandleY="374.226806640625" FeatherType="1"/>
+</Shape>
+</Mask>
+</Masks>
