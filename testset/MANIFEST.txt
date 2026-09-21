@@ -1,0 +1,25 @@
+Hippotizer mask coordinate test set
+===================================
+
+Nine PNG + <Mask> pairs. Load each PNG as media at its own resolution,
+apply the <Mask> of the same name from Masks.xml, and note which ones
+line up pixel-for-pixel. The mapping named in the matching file is the
+one Hippotizer actually uses.
+
+If a pair lines up but is inverted -- the shape survives where it should
+vanish -- the geometry is right and only the mask sense is flipped;
+regenerate with --invert-mask.
+
+file                              resolution   mapping   unit range
+--------------------------------  -----------  --------  -----------------------
+01_1920x1080_native.png           1920x1080    native    x -960.0..960.0  y -540.0..540.0
+02_1920x1080_stretch.png          1920x1080    stretch   x -512.0..512.0  y -384.0..384.0
+03_1920x1080_fit.png              1920x1080    fit       x -512.0..512.0  y -288.0..288.0
+04_3840x1080_native.png           3840x1080    native    x -1920.0..1920.0  y -540.0..540.0
+05_3840x1080_stretch.png          3840x1080    stretch   x -512.0..512.0  y -384.0..384.0
+06_3840x1080_fit.png              3840x1080    fit       x -512.0..512.0  y -144.0..144.0
+07_1024x768_native.png            1024x768     native    x -512.0..512.0  y -384.0..384.0
+08_1024x768_stretch.png           1024x768     stretch   x -512.0..512.0  y -384.0..384.0
+09_1024x768_fit.png               1024x768     fit       x -512.0..512.0  y -384.0..384.0
+
+All nine <Mask> elements are in Masks.xml, declared 1024x768, matched to the PNGs by name.
