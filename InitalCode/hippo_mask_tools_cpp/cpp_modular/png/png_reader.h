@@ -1,0 +1,31 @@
+// png_reader.h -- zero-dependency PNG decoder (no libpng, no zlib).
+// Implements its own DEFLATE inflate (stored + fixed + dynamic Huffman
+// blocks, per RFC 1951) and PNG scanline unfiltering (per the PNG spec,
+// filter types 0-4), so it can read REAL PNGs -- ones saved by Photoshop,
+// GIMP, a browser, PIL, etc, not just files this project's own png_writer
+// produced. That matters for the actual use case: someone hand-painting a
+// mask externally and needing it read back in.
+//
+// Supported: bit depth 8, color type 0 (grayscale), 2 (RGB), 6 (RGBA).
+// NOT supported (throws std::runtime_error naming what's missing):
+// bit depths other than 8, palette images (color type 3), interlaced
+// (Adam7) PNGs, grayscale+alpha (color type 4). All are addressable later;
+// they just weren't needed for the sample files this was built against.
+#pragma once
+#include <cstdint>
+#include <string>
+#include <vector>
+
+struct PngImage {
+    int width = 0, height = 0;
+    int channels = 0;                 // 1 = gray, 3 = RGB, 4 = RGBA
+    std::vector<uint8_t> pixels;      // row-major, top-to-bottom, tightly packed
+};
+
+PngImage readPng(const std::string& path);
+
+// Convenience: returns a single-channel 8-bit buffer. RGB/RGBA input is
+// converted to gray via the alpha channel if present (i.e. treats the
+// image as a soft mask, matching what png_writer's Gray8 output means),
+// otherwise via standard luma (0.299R + 0.587G + 0.114B).
+std::vector<uint8_t> readGrayscalePng(const std::string& path, int* outW = nullptr, int* outH = nullptr);
