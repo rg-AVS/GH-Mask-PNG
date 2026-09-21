@@ -16,7 +16,7 @@ src/
   mask/mask_trace       raster -> contours -> shapes      (PNG -> mask)
   mask/mask_render      shapes -> raster                  (mask -> PNG)
 tools/                  one small CLI per job, thin glue over the above
-gui/                    an operator window (Python, stdlib only)
+gui/                    one button: pick a PNG, get a Masks.xml
 tests/                  the self-checks
 ```
 
@@ -32,6 +32,21 @@ make gui             # the operator window
 `make` needs only a C++17 compiler. The GUI needs Python 3 with tkinter,
 which ships with python.org and Windows Python (`apt install python3-tk` on
 Debian/Ubuntu). Nothing else in the project needs Python at all.
+
+## The window
+
+`make gui` opens one screen with one button and one line of feedback. Pick a
+PNG; a `Masks.xml` is written into the same folder as the image. There is
+nothing to configure -- the image is taken at face value, so whatever size it
+is, is the size the mask is for, and one mask unit is one pixel at that size.
+
+A `Masks.xml` already in that folder is moved aside to `Masks.backup.xml`
+rather than being replaced, and only the first time, so a hand-written file
+is never lost and reconverting the same folder never nags.
+
+Everything else -- the other candidate mappings, the threshold, the corner
+smoothing -- stays on the command line, for when something needs pinning
+down.
 
 ## The tools
 
@@ -114,8 +129,9 @@ with Hippotizer source access drops into `mask_render.cpp`.
 - `mask_space.h` is the file to read first. It is the only place the
   coordinate mapping is defined, and both directions go through it, so the
   two cannot drift apart.
-- The GUI is a test harness, not part of the plugin. It shells out to the same
-  binaries rather than reimplementing anything.
+- The GUI is an operator front-end, not part of the plugin. It shells out to
+  the same binaries rather than reimplementing anything, so the window and a
+  build script cannot disagree.
 
 `docs/POC-notes.md` is the original proof-of-concept write-up, kept for
 history.

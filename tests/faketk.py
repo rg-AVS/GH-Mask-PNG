@@ -75,6 +75,18 @@ class Widget:
     def delete(self, *a, **kw): pass
     def focus_set(self): pass
     def winfo_children(self): return list(self.children)
+    def state(self, statespec=None):
+        """ttk's enable/disable. Recorded so tests can check the button is
+        greyed out while a conversion is running."""
+        if statespec is None:
+            return tuple(self.options.get("_state", ()))
+        current = set(self.options.get("_state", ()))
+        for flag in statespec:
+            current.discard(flag.lstrip("!"))
+            if not flag.startswith("!"):
+                current.add(flag)
+        self.options["_state"] = tuple(sorted(current))
+        return self.options["_state"]
     def add(self, child, **kw): self.children.append(child)
     def invoke(self):
         """Presses a button, the way a person would."""
@@ -92,6 +104,8 @@ class Tk(Widget):
             self._title = text
         return self._title
     def minsize(self, *a): pass
+    def update_idletasks(self): pass
+    def update(self): pass
     def option_add(self, *a, **kw): pass
     def after(self, delay, callback=None, *args):
         if callback is not None:
@@ -138,6 +152,8 @@ def _make_filedialog():
     mod.askopenfilename = lambda **kw: ""
     mod.asksaveasfilename = lambda **kw: ""
     mod.askdirectory = lambda **kw: ""
+    mod.answer = ""            # what the next askopenfilename returns
+    mod.askopenfilename = lambda **kw: mod.answer
     return mod
 
 
