@@ -16,7 +16,8 @@ src/
   mask/mask_trace       raster -> contours -> shapes      (PNG -> mask)
   mask/mask_render      shapes -> raster                  (mask -> PNG)
 tools/                  one small CLI per job, thin glue over the above
-gui/                    one button: pick a PNG, get a Masks.xml
+gui/                    the operator tool: pick a PNG, get a Masks.xml.
+                        Pure Python, no build, no dependencies.
 tests/                  the self-checks
 ```
 
@@ -29,23 +30,50 @@ make testset         # regenerate testset/
 make gui             # the operator window
 ```
 
-`make` needs only a C++17 compiler. The GUI needs Python 3 with tkinter,
-which ships with python.org and Windows Python (`apt install python3-tk` on
-Debian/Ubuntu). Nothing else in the project needs Python at all.
+`make` needs only a C++17 compiler.
 
-## The window
+## Making a mask, with nothing installed
 
-`make gui` opens one screen with one button and one line of feedback. Pick a
-PNG; a `Masks.xml` is written into the same folder as the image. There is
-nothing to configure -- the image is taken at face value, so whatever size it
-is, is the size the mask is for, and one mask unit is one pixel at that size.
+**`gui/` needs no build at all.** It is pure standard-library Python, so on a
+machine with Python 3 on it and nothing else:
+
+```sh
+python3 gui/mask_gui.py         # the window
+python3 gui/maskmaker.py a.png b.png c.png    # or straight from a shell
+```
+
+On Windows, double-click **`gui/Make Mask.bat`**.
+
+The window is one button and one line of feedback. Pick a PNG; a `Masks.xml`
+is written into the same folder as the image, and it is ready for the next
+one immediately. There is nothing to configure -- the image is taken at face
+value, so whatever size it is, is the size the mask is for, and one mask unit
+is one pixel at that size.
 
 A `Masks.xml` already in that folder is moved aside to `Masks.backup.xml`
 rather than being replaced, and only the first time, so a hand-written file
 is never lost and reconverting the same folder never nags.
 
+`maskmaker.py` reads 8- and 16-bit greyscale, RGB, RGBA and palette PNGs, at
+1, 2, 4, 8 or 16 bits per channel. It uses the alpha channel if the image has
+one, and brightness otherwise.
+
+The window needs tkinter, which ships with python.org and Windows Python
+(`apt install python3-tk` on Debian/Ubuntu). `maskmaker.py` does not need
+even that.
+
+### Why this exists twice
+
+`gui/maskmaker.py` and `src/mask/mask_trace.cpp` do the same job. Two
+implementations of one algorithm is normally a smell; here the C++ is what
+ships inside the product and needs a compiler, and the Python is what an
+operator runs on a show laptop that has neither a compiler nor the patience
+for one. `tests/test_maskmaker.py` holds the two together: same rings, same
+coordinates, **pixel-identical renders**. If they ever drift, that test
+fails.
+
 Everything else -- the other candidate mappings, the threshold, the corner
-smoothing -- stays on the command line, for when something needs pinning
+smoothing -- stays on the C++ command line, for when something needs pinning
 down.
 
 ## The tools
@@ -129,9 +157,8 @@ with Hippotizer source access drops into `mask_render.cpp`.
 - `mask_space.h` is the file to read first. It is the only place the
   coordinate mapping is defined, and both directions go through it, so the
   two cannot drift apart.
-- The GUI is an operator front-end, not part of the plugin. It shells out to
-  the same binaries rather than reimplementing anything, so the window and a
-  build script cannot disagree.
+- `gui/` is an operator front-end, not part of the plugin. Ignore it when
+  porting; `tests/test_maskmaker.py` is what keeps it honest against the C++.
 
 `docs/POC-notes.md` is the original proof-of-concept write-up, kept for
 history.

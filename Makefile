@@ -53,14 +53,16 @@ test: all
 testset: $(BUILD)/gen_testset
 	mkdir -p testset && ./$(BUILD)/gen_testset testset
 
+# The window needs no build at all -- it converts in pure Python. This target
+# is only here so `make gui` does what you would expect.
 gui:
 	python3 gui/mask_gui.py
 
-# The Python checks alone -- handy while working on the GUI, since they need
-# no display and no tkinter.
+# The Python checks alone. They need no display, no tkinter and no build --
+# the C++ cross-check inside them skips itself if build/ is empty.
 .PHONY: test-gui
-test-gui: all
-	python3 tests/test_backend.py
+test-gui:
+	python3 tests/test_maskmaker.py
 	python3 tests/test_gui.py
 
 clean:

@@ -2,8 +2,11 @@
 """test_gui.py -- exercises gui/mask_gui.py against a stand-in tkinter.
 
 Covers the wiring, not the drawing: that the window builds, that choosing a
-file runs a real conversion and puts Masks.xml beside the image, and that a
-bad image is reported in words rather than as a traceback.
+file runs a real conversion and puts Masks.xml beside the image, that it is
+ready for the next one straight away, and that a bad image is reported in
+words rather than as a traceback.
+
+The conversion itself is gui/maskmaker.py and is tested separately.
 
     python3 tests/test_gui.py
 """
@@ -64,6 +67,8 @@ def main():
     check("title is set", app.title() == "PNG to Hippotizer Mask", app.title())
     check("it is one button and one line", len(faketk.CREATED) <= 6, len(faketk.CREATED))
     check("the button is available", "disabled" not in app.button.state())
+    check("nothing has to be built first", "not built" not in app.status.cget("text"),
+          app.status.cget("text"))
 
     section("There is nothing to configure")
     for gone in ("p2m_map", "p2m_threshold", "p2m_simplify", "ts_dir", "preview", "details"):
@@ -92,15 +97,29 @@ def main():
         check("and what it found", "shape" in app.status.cget("text"), app.status.cget("text"))
         check("no backup mentioned on a fresh folder",
               "kept as" not in app.status.cget("text"), app.status.cget("text"))
+        check("it remembers the folder for next time", app.last_folder == work,
+              app.last_folder)
+
 
         section("An existing mask is kept and said so")
         with open(os.path.join(work, "Masks.xml"), "w") as f:
             f.write("<Masks><!-- hand written --></Masks>")
+        filedialog.answer = png
         app.choose()
         check("it says where the old one went", "Masks.backup.xml" in app.status.cget("text"),
               app.status.cget("text"))
         with open(os.path.join(work, "Masks.backup.xml")) as f:
             check("the old one is intact", "hand written" in f.read())
+
+        section("Straight on to the next one")
+        again = os.path.join(work, "second.png")
+        shutil.copy(os.path.join(ROOT, "testset", "07_1024x768_native.png"), again)
+        filedialog.answer = again
+        app.choose()
+        check("the second conversion ran", "1024 x 768" in app.status.cget("text"),
+              app.status.cget("text"))
+        check("still reported as done", app.status.cget("foreground") == mask_gui.OK,
+              app.status.cget("text"))
 
         section("An image with nothing in it says so")
         blank = os.path.join(tmp, "blank")
