@@ -348,22 +348,6 @@ PngImage readPng(const std::string& path) {
     return img;
 }
 
-std::vector<uint8_t> readGrayscalePng(const std::string& path, int* outW, int* outH) {
-    PngImage img = readPng(path);
-    if (outW) *outW = img.width;
-    if (outH) *outH = img.height;
-    if (img.channels == 1) return img.pixels;
-
-    std::vector<uint8_t> gray((size_t)img.width * img.height);
-    for (size_t i = 0; i < gray.size(); i++) {
-        const uint8_t* px = img.pixels.data() + i * img.channels;
-        gray[i] = (img.channels == 4)
-                      ? px[3]
-                      : (uint8_t)(0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2]);
-    }
-    return gray;
-}
-
 std::vector<uint8_t> readMaskPng(const std::string& path, int* outW, int* outH) {
     static const char* kNoAlpha =
         "this PNG has no transparency in it, and transparency is the only thing we read. "

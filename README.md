@@ -1,179 +1,102 @@
-# Hippotizer mask tools
+# PNG to Hippotizer mask
 
-Converts between Hippotizer's `Masks.xml` and PNG images, in both directions,
-with no external dependencies at all: plain C++17 and the standard library.
-No libpng, no zlib, no tinyxml2, no graphics toolkit. Every piece is small
-enough to lift into another codebase on its own.
+Turns a PNG into a Hippotizer `Masks.xml`. That is the only thing here.
 
-```
-src/
-  common/checksums      CRC-32 + Adler-32
-  xml/xml_reader        XML -> DOM            xml/xml_writer   DOM -> XML
-  png/png_reader        PNG -> pixels         png/png_writer   pixels -> PNG
-  png/deflate           DEFLATE + zlib container (drop-in replaceable by real zlib)
-  mask/mask_model       the Masks.xml schema, read and written
-  mask/mask_space       THE unit <-> pixel mapping. Everything goes through it.
-  mask/mask_trace       raster -> contours -> shapes      (PNG -> mask)
-  mask/mask_render      shapes -> raster                  (mask -> PNG)
-tools/                  one small CLI per job, thin glue over the above
-gui/                    the operator tool: pick a PNG, get a Masks.xml.
-                        Pure Python, no build, no dependencies.
-tests/                  the self-checks
-```
+**The mask is whatever is not see-through.** Only the alpha channel is read;
+the colours are never looked at, and a PNG with no transparency is refused
+with a message saying what to do about it rather than guessed at.
 
-## Build and run
+That is not fussiness. Artwork is usually not white -- the three shapes in
+`testset/Shapes/` are red, green and blue, all darker than mid-grey -- so
+anything going on brightness would find almost nothing, or, on a dark shape
+over a light background, the exact inverse of what was drawn. Alpha is
+unambiguous.
+
+## Using it
+
+Nothing to build and nothing to install. With Python 3:
 
 ```sh
-make                 # every tool into build/
-make test            # the self-checks
-make testset         # regenerate testset/
-make gui             # the operator window
-```
-
-`make` needs only a C++17 compiler.
-
-## Making a mask, with nothing installed
-
-**`gui/` needs no build at all.** It is pure standard-library Python, so on a
-machine with Python 3 on it and nothing else:
-
-```sh
-python3 gui/mask_gui.py         # the window
-python3 gui/maskmaker.py a.png b.png c.png    # or straight from a shell
+python3 gui/mask_gui.py                        # the window
+python3 gui/maskmaker.py a.png b.png c.png     # or straight from a shell
 ```
 
 On Windows, double-click **`gui/Make Mask.bat`**.
 
 The window is one button and one line of feedback. Pick a PNG; a `Masks.xml`
 is written into the same folder as the image, and it is ready for the next
-one immediately. There is nothing to configure -- the image is taken at face
-value, so whatever size it is, is the size the mask is for, and one mask unit
-is one pixel at that size.
-
-A `Masks.xml` already in that folder is moved aside to `Masks.backup.xml`
-rather than being replaced, and only the first time, so a hand-written file
-is never lost and reconverting the same folder never nags.
-
-### Transparency is the only thing read
-
-The mask is whatever is **not see-through**. The colours are never looked at,
-and a PNG with no transparency is refused with a message saying what to do
-about it, rather than guessed at.
-
-That is not fussiness. Artwork is usually not white -- the three shapes in
-`testset/Shapes/` are all darker than mid-grey -- so anything going on
-brightness would find almost nothing, or, on a dark shape over a light
-background, the exact inverse of what was drawn. Alpha is unambiguous.
-
-So: hide the background layer and export PNG-24 with Transparency ticked.
-Any PNG flavour carrying an alpha channel works -- RGBA, greyscale+alpha, or
-a palette with `tRNS` -- at 1, 2, 4, 8 or 16 bits per channel.
+one immediately. A `Masks.xml` already in that folder is moved aside to
+`Masks.backup.xml` rather than replaced, and only the first time, so a
+hand-written file is never lost and reconverting a folder never nags.
 
 The window needs tkinter, which ships with python.org and Windows Python
 (`apt install python3-tk` on Debian/Ubuntu). `maskmaker.py` does not need
 even that.
 
-### Why this exists twice
+## The C++ version
 
-`gui/maskmaker.py` and `src/mask/mask_trace.cpp` do the same job. Two
-implementations of one algorithm is normally a smell; here the C++ is what
-ships inside the product and needs a compiler, and the Python is what an
-operator runs on a show laptop that has neither a compiler nor the patience
-for one. `tests/test_maskmaker.py` holds the two together: same rings, same
-coordinates, **pixel-identical renders**. If they ever drift, that test
-fails.
-
-Everything else -- the other candidate mappings, the threshold, the corner
-smoothing -- stays on the C++ command line, for when something needs pinning
-down.
-
-## The tools
-
-| Tool | Does |
-|---|---|
-| `png2mask` | PNG -> `Masks.xml`. Traces the see-through edges into shapes. |
-| `mask2png` | `Masks.xml` -> PNG, at any resolution, under any mapping. Writes white-on-transparent, so a render is itself readable as mask artwork. |
-| `mask_diff` | Compares two PNGs and says whether they cancel. Exit code 0/2. |
-| `gen_testset` | Writes the nine-file coordinate test set. |
-| `bounds_report` | Where each shape lands, and whether it fits the canvas. |
-| `svg_export` | Each mask as an SVG, for eyeballing in a browser. |
-| `xml_roundtrip_check` | Parse -> write -> reparse keeps every field. |
-| `png_roundtrip_check` | Decode -> encode -> decode keeps every pixel. |
-
-Each takes `--help`. A typical pass:
+The same conversion, for dropping into a product. Plain C++17, no external
+dependencies -- no libpng, no zlib, no XML library.
 
 ```sh
-./build/png2mask "Ref/Star for Mask.png" star.xml --map native --simplify 1.0
-./build/mask2png star.xml out/ --res 1920x1080 --map native
-./build/mask_diff "Ref/Star for Mask.png" out/Star_for_Mask.png
+make
+./build/png2mask artwork.png Masks.xml
 ```
 
-`png2mask` reads a PNG's alpha channel and nothing else, and refuses an image
-that has none. `readGrayscalePng` is still the lenient reader, but it is for
-comparing renders, not for reading artwork.
+```
+src/
+  common/checksums    CRC-32 and Adler-32, for verifying a PNG as it is read
+  png/png_reader      PNG -> pixels, and readMaskPng -> the alpha channel
+  mask/mask_trace     alpha -> contours -> shapes. The conversion.
+  mask/mask_model     the Masks.xml schema, and writing it
+tools/png2mask.cpp    the CLI, thin glue over the above
+```
 
-## The coordinate question
+`png2mask --help` lists its four flags. `mask_trace.h` is the file to read
+first.
 
-Every `Masks.xml` Hippotizer writes says `xres="1024" yres="768"`, whatever
-resolution the mask was actually drawn against, and nothing says what one
-coordinate unit is worth. Three candidates are implemented, switchable with
-`--map`:
+### Why it exists twice
 
-| `--map` | One unit is |
-|---|---|
-| `native` | one pixel at the image's own resolution. Current best guess. |
-| `stretch` | 1/1024th of the width and 1/768th of the height, squashed to fit. |
-| `fit` | the same, uniformly scaled so the aspect ratio is kept. |
+`gui/maskmaker.py` and `src/mask/mask_trace.cpp` do the same job, which is
+normally a smell worth naming. The C++ is what ships inside the product; the
+Python is what an operator runs on a show laptop that has no compiler.
+`tests/test_maskmaker.py` holds the two together -- same rings, point for
+point -- and skips that half if `build/` is empty, so the tests pass on a
+machine that has never run `make`.
 
-`testset/` exists to settle it — see **docs/COORDINATES.md**, which has the
-evidence so far and how to run the test.
+## What a mask coordinate is worth
 
-## Accuracy
+One unit is one pixel at the image's own resolution, with the origin in the
+middle of the image.
 
-`png2mask --simplify 0` traces along the grid lines *between* pixels rather
-than through pixel centres, so the polygon it emits covers exactly the pixels
-that crossed the threshold. Feeding that mask back through `mask2png` at the
-same resolution returns a bit-identical image — `make test` asserts it on
-every mapping. With a non-zero `--simplify` the trace is deliberately lossy,
-trading nodes for smoothness.
-
-Note that a mask is a hard-edged shape and a painted PNG usually is not: a
-threshold has to throw away the antialiased edge, so a source image and the
-first render of its mask differ along that edge (about 0.2% of pixels on the
-sample star). What is lossless is everything after that first render.
+Every `Masks.xml` Hippotizer writes declares `xres="1024" yres="768"`
+whatever the artwork was drawn against, so that is a label and not a scale.
+Two other readings of it were implemented and tested against the one real
+sample; both put its shape off the canvas, and only this one keeps a square
+square. `docs/COORDINATES.md` has the evidence and the test files for
+settling it against Hippotizer itself, and the code for the other two is in
+git history if it is ever needed.
 
 ## What is still guessed
 
-Unchanged from the original proof of concept, and flagged in the headers of
-the files that would implement them:
+- **Curves.** Traced shapes are corner nodes only. Hippotizer's format
+  carries Bezier handles and a parallel feather path per node; a raster has
+  no curve or feather information to put in them, so the writer fills them
+  with the point itself. `mask_model.h` says what was left out.
+- **`Blur`**, **`hvmix`/`hblend`/`vblend`**, **`infill`** -- written as the
+  values Hippotizer writes, never computed.
 
-- **Which mapping is real.** See above. This one has a test now.
-- **`Blur` units** — used as a Gaussian sigma in pixels; could be a percentage.
-- **`hvmix` / `hblend` / `vblend`** — parsed, carried through, not implemented.
-- **`Feather*`** — parsed and written, not rendered. No sample file has a
-  feather path that diverges from its main path, so there is nothing to check
-  an implementation against.
-- **`infill`** — ignored; every shape renders as a solid fill.
-- **Compositing** — shapes sharing a `Level` are filled together with the
-  nonzero rule, so a reversed ring cuts a hole. Different `Level`s combine
-  with max ("lighten"), which is still a guess.
+## Testing
 
-None of these need more guessing from outside. They are the constants someone
-with Hippotizer source access drops into `mask_render.cpp`.
+```sh
+./tests/run_tests.sh       # or: make test
+```
 
-## Notes for dropping this into a product
+## Files
 
-- `deflate.cpp` exists so the project needs no zlib. If the host already
-  links zlib, delete it and swap `zlibCompress()` for `compress2()` — one line
-  in `png_writer.cpp`.
-- `xml_reader` is a minimal parser sized for `Masks.xml`'s flat structure, not
-  a general XML library. If the host already has one, `mask_model.cpp` is the
-  only file that would need rewriting.
-- `mask_space.h` is the file to read first. It is the only place the
-  coordinate mapping is defined, and both directions go through it, so the
-  two cannot drift apart.
-- `gui/` is an operator front-end, not part of the plugin. Ignore it when
-  porting; `tests/test_maskmaker.py` is what keeps it honest against the C++.
-
-`docs/POC-notes.md` is the original proof-of-concept write-up, kept for
-history.
+| | |
+|---|---|
+| `testset/Shapes/` | Real artwork: three coloured shapes on transparency. |
+| `Ref/Star for Mask.png` | A traced star, for a shape with many points. |
+| `Mask Data/Masks.xml` | A real Hippotizer file. The reference for the format. |
+| `testset/*.png` | The coordinate test set -- see `docs/COORDINATES.md`. |

@@ -2,11 +2,13 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdio>
 #include <random>
 #include <unordered_map>
 
 namespace {
+
+const size_t kMinArea = 4;      // ignore traced specks smaller than this many pixels
+
 
 // A directed unit step along a grid line between pixels. Edges are stored
 // by their start vertex so chaining is a hash lookup, not a search.
@@ -104,15 +106,14 @@ std::vector<Vec2> simplifyRing(const std::vector<Vec2>& ring, double eps) {
     return out.size() >= 3 ? out : base;
 }
 
-std::vector<std::vector<Vec2>> traceContours(const std::vector<uint8_t>& gray, int w, int h,
+std::vector<std::vector<Vec2>> traceContours(const std::vector<uint8_t>& alpha, int w, int h,
                                               const TraceOptions& opts) {
     std::vector<std::vector<Vec2>> rings;
-    if (w <= 0 || h <= 0 || gray.size() < (size_t)w * h) return rings;
+    if (w <= 0 || h <= 0 || alpha.size() < (size_t)w * h) return rings;
 
     auto inside = [&](int x, int y) -> bool {
-        if (x < 0 || y < 0 || x >= w || y >= h) return false;   // outside the image is never mask
-        bool v = gray[(size_t)y * w + x] >= opts.threshold;
-        return opts.invertInput ? !v : v;
+        if (x < 0 || y < 0 || x >= w || y >= h) return false;   // off the image is never mask
+        return alpha[(size_t)y * w + x] >= opts.threshold;
     };
 
     // Every boundary between an inside pixel and an outside one becomes one
@@ -164,15 +165,18 @@ std::vector<std::vector<Vec2>> traceContours(const std::vector<uint8_t>& gray, i
             cur = next;
         }
         if (ring.size() < 4) continue;
-        if (std::fabs(signedArea(ring)) < (double)opts.minArea) continue;
+        if (std::fabs(signedArea(ring)) < (double)kMinArea) continue;
         rings.push_back(simplifyRing(ring, opts.simplifyEps));
     }
     return rings;
 }
 
-std::string makeGuid(unsigned seed) {
-    if (seed == 0) seed = (unsigned)std::chrono::steady_clock::now().time_since_epoch().count();
-    std::mt19937 rng(seed);
+namespace {
+
+// A Hippotizer-style "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}" GUID.
+std::string makeGuid() {
+    static std::mt19937 rng(
+        (unsigned)std::chrono::steady_clock::now().time_since_epoch().count());
     std::uniform_int_distribution<int> hex(0, 15);
     const char* digits = "0123456789ABCDEF";
     std::string s = "{";
@@ -184,39 +188,21 @@ std::string makeGuid(unsigned seed) {
     return s + "}";
 }
 
-MaskShape ringToShape(const std::vector<Vec2>& pixelRing, const MaskSpace& space,
-                      double level, double gamma, unsigned guidSeed) {
-    MaskShape shape;
-    shape.level = level;
-    shape.gamma = gamma;
-    shape.guid = makeGuid(guidSeed);
-    shape.nodes.reserve(pixelRing.size());
-    for (const auto& p : pixelRing) {
-        Vec2 u = space.toUnits(p.x, p.y);
-        MaskNode nd;
-        // Straight segments: both handles sit on the point itself, which is
-        // exactly how Hippotizer writes a corner node (Type="1").
-        nd.pos = nd.inH = nd.outH = u;
-        nd.featherPos = nd.featherIn = nd.featherOut = u;
-        nd.type = "1";
-        nd.featherType = "1";
-        shape.nodes.push_back(nd);
-    }
-    return shape;
-}
+} // namespace
 
-HippoMask traceMask(const std::vector<uint8_t>& gray, int w, int h,
-                    const MaskSpace& space, const std::string& name,
-                    const std::string& index, const TraceOptions& opts) {
+HippoMask traceMask(const std::vector<uint8_t>& alpha, int w, int h,
+                    const std::string& name, const TraceOptions& opts) {
     HippoMask mask;
-    mask.index = index;
     mask.name = name;
-    mask.xres = space.declW;   // Hippotizer always writes the editor canvas here,
-    mask.yres = space.declH;   // never the resolution the mask was drawn against
-    mask.blur = 0.0;
 
-    unsigned seed = opts.guidSeed;
-    for (const auto& ring : traceContours(gray, w, h, opts))
-        mask.shapes.push_back(ringToShape(ring, space, opts.level, opts.gamma, seed ? seed++ : 0));
+    // One unit is one pixel, origin in the middle of the image.
+    const double halfW = w / 2.0, halfH = h / 2.0;
+    for (const auto& ring : traceContours(alpha, w, h, opts)) {
+        MaskShape shape;
+        shape.guid = makeGuid();
+        shape.points.reserve(ring.size());
+        for (const auto& p : ring) shape.points.push_back({p.x - halfW, p.y - halfH});
+        mask.shapes.push_back(shape);
+    }
     return mask;
 }

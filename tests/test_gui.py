@@ -45,9 +45,9 @@ def section(name):
     print("\n=== %s ===" % name)
 
 
-def clear_png(path, width=64, height=64):
-    """A fully see-through PNG, so the 'nothing to trace' path is exercised."""
-    raw = b"".join(b"\x00" + bytes([20, 20, 20, 0]) * width for _ in range(height))
+def rgba_png(path, alpha, width=64, height=64):
+    """A flat RGBA PNG at one alpha value: 0 for see-through, 255 for solid."""
+    raw = b"".join(b"\x00" + bytes([20, 20, 20, alpha]) * width for _ in range(height))
 
     def chunk(tag, data):
         body = tag + data
@@ -124,7 +124,7 @@ def main():
         section("An image with nothing in it says so")
         blank = os.path.join(tmp, "blank")
         os.makedirs(blank)
-        filedialog.answer = clear_png(os.path.join(blank, "blank.png"))
+        filedialog.answer = rgba_png(os.path.join(blank, "blank.png"), 0)
         app.choose()
         check("warned, not errored", app.status.cget("foreground") == mask_gui.WARN,
               app.status.cget("text"))
@@ -134,9 +134,7 @@ def main():
         section("A PNG with no transparency says what to do about it")
         solid = os.path.join(tmp, "solid")
         os.makedirs(solid)
-        shutil.copy(os.path.join(ROOT, "docs", "coordinate_mismatch_visual.png"),
-                    os.path.join(solid, "solid.png"))
-        filedialog.answer = os.path.join(solid, "solid.png")
+        filedialog.answer = rgba_png(os.path.join(solid, "solid.png"), 255)
         app.choose()
         check("shown as an error", app.status.cget("foreground") == mask_gui.ERR,
               app.status.cget("text"))

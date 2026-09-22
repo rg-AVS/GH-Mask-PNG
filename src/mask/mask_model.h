@@ -1,49 +1,37 @@
-// mask_model.h -- the Hippotizer Masks.xml data model, plus read/write of
-// it via xml_reader.h / xml_writer.h. This is the "XML reader" and "XML
-// writer" pieces made concrete for this specific file format (as opposed
-// to xml_reader.h/xml_writer.h, which know nothing about masks at all).
+// mask_model.h -- the Masks.xml data model, and writing it out.
+//
+// WRITE ONLY. Nothing here reads Masks.xml, because nothing in the PNG ->
+// mask direction needs to.
+//
+// The model is only as wide as what this tool produces: closed rings of
+// CORNER nodes. Hippotizer's format carries more per node -- separate in and
+// out Bezier handles, a parallel feather path, and per-shape angle, outline,
+// linewidth, infill and hv/h/v blend -- and the writer fills all of them in
+// with the fixed values a corner node implies (both handles and the whole
+// feather path sit on the point itself, Type="1"). A shape traced from a
+// raster has no curve or feather information to put there, so carrying
+// fields that could only ever hold those constants would be pretending to a
+// generality this does not have. Anyone adding curve support adds the fields
+// back here and in writeMasksXml, and nowhere else.
 #pragma once
 #include <string>
 #include <vector>
 
 struct Vec2 { double x = 0, y = 0; };
 
-struct MaskNode {
-    Vec2 pos, inH, outH;
-    std::string type;                 // "1" = corner, "2" = smooth (editor metadata only --
-                                       // geometry comes entirely from pos/inH/outH regardless)
-    Vec2 featherPos, featherIn, featherOut;
-    std::string featherType;
-};
-
 struct MaskShape {
-    double level = 255.0;             // 0-255 opacity/brightness
-    std::string guid;
-    double angle = 0.0;
-    bool locked = false;
-    bool outline = false;
-    double linewidth = 1.0;
-    double gamma = 1.0;
-    bool infill = false;
-    int hvmix = 127, hblend = 127, vblend = 127; // unimplemented in mask_render -- see its header
-    std::vector<MaskNode> nodes;
+    std::string guid;                 // "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
+    std::vector<Vec2> points;         // a closed ring, in mask units
 };
 
 struct HippoMask {
-    std::string index, name;
-    bool invert = false;
-    bool alpha = false;
-    double blur = 0.0;
-    bool showpoints = false;
-    int xres = 0, yres = 0;
+    std::string index = "1";
+    std::string name;
+    bool invert = false;              // true cuts the shape out instead of keeping it
+    int xres = 1024, yres = 768;      // what Hippotizer writes, whatever the artwork was
     std::vector<MaskShape> shapes;
 };
 
-// Reads a Masks.xml file into the data model above.
-std::vector<HippoMask> parseMasksXml(const std::string& path);
-
-// Writes the data model back out as a Masks.xml file, in the same flat,
-// one-element-per-line style the sample files use. Round-tripping
-// parseMasksXml -> writeMasksXml -> parseMasksXml should reproduce the
-// same numeric field values (see tools/xml_roundtrip_check.cpp).
+// Writes a <Masks> document, in the flat one-element-per-line style
+// Hippotizer's own files use.
 void writeMasksXml(const std::string& path, const std::vector<HippoMask>& masks);

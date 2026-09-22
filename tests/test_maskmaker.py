@@ -4,9 +4,9 @@
 Two halves. The first needs nothing but Python: reading alpha out of every
 PNG flavour, refusing images that have none, hole winding, the XML that comes
 out, and the error messages. The second holds maskmaker to
-src/mask/mask_trace.cpp -- same rings, pixel-identical renders -- and is
-skipped if the C++ has not been built, since the whole point of maskmaker is
-that it runs where there is no compiler.
+src/mask/mask_trace.cpp, ring for ring and point for point, and is skipped if
+the C++ has not been built, since the whole point of maskmaker is that it
+runs where there is no compiler.
 
     python3 tests/test_maskmaker.py
 """
@@ -302,8 +302,6 @@ def main():
         check("mostly see-through is not masked", maskmaker.trace(alpha, width, height) == [])
         check("the threshold is adjustable",
               len(maskmaker.trace(alpha, width, height, threshold=90)) == 1)
-        check("inverting masks the see-through part instead",
-              len(maskmaker.trace(alpha, width, height, invert=True)) == 1)
 
         section("Smoothing")
         square = [(10, 5), (30, 5), (30, 25), (10, 25)]
@@ -390,25 +388,23 @@ def main():
         # --- held against the C++ ------------------------------------------
         section("Agrees with the C++ tracer")
         png2mask = os.path.join(ROOT, "build", "png2mask" + (".exe" if os.name == "nt" else ""))
-        mask2png = os.path.join(ROOT, "build", "mask2png" + (".exe" if os.name == "nt" else ""))
         if not os.path.isfile(png2mask):
             skip("same rings as mask_trace.cpp", "C++ not built; run make")
-            skip("pixel-identical renders", "C++ not built; run make")
         else:
             samples = ["testset/Shapes/PNG to MAsk.png",
                        "Ref/Star for Mask.png",
                        "testset/01_1920x1080_native.png",
                        "testset/04_3840x1080_native.png",
                        "testset/07_1024x768_native.png"]
-            all_same = True
-            all_pixels = True
+            same = True
             for sample in samples:
                 pen = os.path.join(tmp, "cross", os.path.basename(sample))
                 os.makedirs(os.path.dirname(pen), exist_ok=True)
                 shutil.copy(os.path.join(ROOT, sample), pen)
                 for stale in ("Masks.xml", "Masks.backup.xml"):
-                    if os.path.exists(os.path.join(os.path.dirname(pen), stale)):
-                        os.remove(os.path.join(os.path.dirname(pen), stale))
+                    stale = os.path.join(os.path.dirname(pen), stale)
+                    if os.path.exists(stale):
+                        os.remove(stale)
 
                 mine = maskmaker.convert(pen)
                 theirs = os.path.join(tmp, "cross", "cpp.xml")
@@ -417,34 +413,14 @@ def main():
                                capture_output=True, check=True)
 
                 # A ring is the same ring whatever point it starts from, and the
-                # two implementations walk the pixels in a different order, so
-                # compare the rings themselves rather than their first node.
+                # two walk the pixels in a different order, so compare the rings
+                # themselves rather than their first node.
                 a = sorted(canonical(r) for r in rings_of(mine["xml"]))
                 b = sorted(canonical(r) for r in rings_of(theirs))
                 if a != b:
-                    all_same = False
+                    same = False
                     print("        %s: %d rings vs %d" % (sample, len(a), len(b)))
-
-                # The real proof: render both and compare every pixel.
-                if os.path.isfile(mask2png):
-                    width, height = mine["width"], mine["height"]
-                    for which, xml in (("py", mine["xml"]), ("cpp", theirs)):
-                        out = os.path.join(tmp, "cross", which)
-                        os.makedirs(out, exist_ok=True)
-                        subprocess.run([mask2png, xml, out, "--res", "%dx%d" % (width, height)],
-                                       capture_output=True, check=True)
-                    rendered = [os.path.join(tmp, "cross", w, os.listdir(
-                        os.path.join(tmp, "cross", w))[0]) for w in ("py", "cpp")]
-                    if open(rendered[0], "rb").read() != open(rendered[1], "rb").read():
-                        all_pixels = False
-                        print("        %s: renders differ" % sample)
-                    for w in ("py", "cpp"):
-                        shutil.rmtree(os.path.join(tmp, "cross", w))
-            check("same rings as mask_trace.cpp", all_same)
-            if os.path.isfile(mask2png):
-                check("pixel-identical renders", all_pixels)
-            else:
-                skip("pixel-identical renders", "mask2png not built")
+            check("same rings as mask_trace.cpp, to the last point", same)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -2,9 +2,8 @@
 // Implements its own DEFLATE inflate (stored + fixed + dynamic Huffman
 // blocks, per RFC 1951) and PNG scanline unfiltering (per the PNG spec,
 // filter types 0-4), so it can read REAL PNGs -- ones saved by Photoshop,
-// GIMP, a browser, PIL, etc, not just files this project's own png_writer
-// produced. That matters for the actual use case: someone hand-painting a
-// mask externally and needing it read back in.
+// GIMP, a browser, PIL, etc. That is the actual use case: a designer hands
+// over artwork and it has to be read exactly as they saved it.
 //
 // Supported: bit depth 8, color type 0 (grayscale), 2 (RGB), 6 (RGBA).
 // NOT supported (throws std::runtime_error naming what's missing):
@@ -23,11 +22,6 @@ struct PngImage {
 };
 
 PngImage readPng(const std::string& path);
-
-// Returns the image as a single-channel 8-bit buffer, for comparing renders:
-// gray as-is, RGBA by its alpha, RGB by luma (0.299R + 0.587G + 0.114B).
-// This is the lenient one -- to read artwork as a mask, use readMaskPng.
-std::vector<uint8_t> readGrayscalePng(const std::string& path, int* outW = nullptr, int* outH = nullptr);
 
 // Returns a PNG's ALPHA CHANNEL, and nothing else: what is solid is mask,
 // what is see-through is not, and the colours are never read. Artwork is

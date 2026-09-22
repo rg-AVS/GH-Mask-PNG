@@ -1,87 +1,81 @@
-// png2mask.cpp -- CLI: PNG -> Masks.xml. The direction this project exists
-// for. Thin glue over png_reader + mask_space + mask_trace + mask_model.
+// png2mask.cpp -- CLI: PNG -> Masks.xml. The one thing this project does.
 //
-//   png2mask star.png Masks.xml --map native --simplify 1.0
+//   png2mask artwork.png Masks.xml
 //
 // ONLY the alpha channel is read: what is solid becomes mask, what is
 // see-through does not, and the colours are never looked at. A PNG with no
 // transparency is refused rather than guessed at -- artwork is usually not
 // white, so going on brightness would find the wrong thing, or the exact
 // inverse of what was drawn.
+#include <exception>
 #include <iostream>
 #include <string>
+#include <vector>
 #include "../src/mask/mask_model.h"
-#include "../src/mask/mask_space.h"
 #include "../src/mask/mask_trace.h"
 #include "../src/png/png_reader.h"
-#include "cli.h"
+
+namespace {
+
+// Four flags is not enough to justify an argument parser.
+std::string flag(int argc, char** argv, const std::string& name, const std::string& def) {
+    for (int i = 1; i + 1 < argc; i++)
+        if (name == argv[i]) return argv[i + 1];
+    return def;
+}
+
+bool present(int argc, char** argv, const std::string& name) {
+    for (int i = 1; i < argc; i++)
+        if (name == argv[i]) return true;
+    return false;
+}
+
+std::string stem(std::string path) {
+    size_t slash = path.find_last_of("/\\");
+    if (slash != std::string::npos) path = path.substr(slash + 1);
+    size_t dot = path.find_last_of('.');
+    return dot == std::string::npos ? path : path.substr(0, dot);
+}
+
+} // namespace
 
 int main(int argc, char** argv) {
-    Cli cli(argc, argv);
-    if (cli.positional.size() < 2 || cli.has("--help")) {
+    std::vector<std::string> positional;
+    for (int i = 1; i < argc; i++) {
+        std::string a = argv[i];
+        if (a.rfind("--", 0) == 0) { if (a != "--invert-mask" && a != "--help") i++; }
+        else positional.push_back(a);
+    }
+
+    if (positional.size() < 2 || present(argc, argv, "--help")) {
         std::cerr <<
-            "usage: png2mask input.png output.xml [options]\n"
-            "  --map MODE         native | stretch | fit   (default native)\n"
-            "  --decl WxH         declared xres/yres to write (default 1024x768)\n"
-            "  --yflip            emit +Y pointing up instead of down\n"
-            "  --threshold N      0-255, alpha >= N is inside the mask (default 128)\n"
-            "  --invert-input     mask the SEE-THROUGH areas instead\n"
-            "  --invert-mask      set invert=\"true\" on the <Mask>\n"
-            "  --simplify EPS     Douglas-Peucker tolerance in pixels (default 1.0; 0 = lossless)\n"
-            "  --min-area N       drop traced regions under N pixels (default 4)\n"
-            "  --name NAME        <Mask name> (default: the PNG's filename)\n"
-            "  --index N          <Mask index> (default: 1, or next free when appending)\n"
-            "  --blur N           <Mask Blur> (default 0)\n"
-            "  --guid-seed N      fixed seed for reproducible GUIDs (default: clock)\n"
-            "  --append           add to output.xml's existing masks instead of replacing\n";
-        return cli.has("--help") ? 0 : 1;
+            "usage: png2mask artwork.png Masks.xml [options]\n"
+            "  --threshold N   0-255, alpha at or above N is inside the mask (default 128)\n"
+            "  --simplify EPS  how far a traced edge may be straightened, in pixels\n"
+            "                  (default 1; 0 keeps every step exactly)\n"
+            "  --invert-mask   cut the shape out instead of keeping it\n"
+            "  --name NAME     <Mask name> (default: the PNG's filename)\n";
+        return present(argc, argv, "--help") ? 0 : 1;
     }
 
     try {
-        std::string pngPath = cli.positional[0];
-        std::string xmlPath = cli.positional[1];
+        const std::string pngPath = positional[0], xmlPath = positional[1];
 
         int w = 0, h = 0;
-        auto gray = readMaskPng(pngPath, &w, &h);
-
-        int declW = 1024, declH = 768;
-        if (cli.has("--decl")) parseRes(cli.str("--decl", ""), declW, declH);
-
-        MaskSpace space(parseSpaceMode(cli.str("--map", "native")), w, h, declW, declH);
-        space.yFlip = cli.has("--yflip");
+        auto alpha = readMaskPng(pngPath, &w, &h);
 
         TraceOptions opts;
-        opts.threshold = (uint8_t)std::max(0, std::min(255, cli.integer("--threshold", 128)));
-        opts.invertInput = cli.has("--invert-input");
-        opts.simplifyEps = cli.num("--simplify", 1.0);
-        opts.minArea = (size_t)std::max(0, cli.integer("--min-area", 4));
-        opts.guidSeed = (unsigned)cli.integer("--guid-seed", 0);
+        opts.threshold = (uint8_t)std::stoi(flag(argc, argv, "--threshold", "128"));
+        opts.simplifyEps = std::stod(flag(argc, argv, "--simplify", "1"));
 
-        std::vector<HippoMask> masks;
-        if (cli.has("--append")) {
-            try { masks = parseMasksXml(xmlPath); } catch (...) { /* no file yet: start fresh */ }
-        }
+        auto mask = traceMask(alpha, w, h, flag(argc, argv, "--name", stem(pngPath)), opts);
+        mask.invert = present(argc, argv, "--invert-mask");
+        writeMasksXml(xmlPath, {mask});
 
-        std::string base = pngPath;
-        size_t slash = base.find_last_of("/\\");
-        if (slash != std::string::npos) base = base.substr(slash + 1);
-        size_t dot = base.find_last_of('.');
-        if (dot != std::string::npos) base = base.substr(0, dot);
-
-        std::string index = cli.str("--index", std::to_string(masks.size() + 1));
-        auto mask = traceMask(gray, w, h, space, cli.str("--name", base), index, opts);
-        mask.invert = cli.has("--invert-mask");
-        mask.blur = cli.num("--blur", 0.0);
-
-        size_t nodes = 0;
-        for (const auto& s : mask.shapes) nodes += s.nodes.size();
-        masks.push_back(mask);
-        writeMasksXml(xmlPath, masks);
-
-        std::cout << "wrote " << xmlPath << "  (mask index=" << index
-                  << " from " << w << "x" << h
-                  << ", map=" << spaceModeName(space.mode)
-                  << ", " << mask.shapes.size() << " shape(s), " << nodes << " node(s))\n";
+        size_t points = 0;
+        for (const auto& s : mask.shapes) points += s.points.size();
+        std::cout << "wrote " << xmlPath << "  (" << mask.shapes.size() << " shape(s), "
+                  << points << " point(s), from " << w << "x" << h << ")\n";
         if (mask.shapes.empty())
             std::cout << "  note: nothing in it was solid enough to trace.\n";
     } catch (const std::exception& e) {

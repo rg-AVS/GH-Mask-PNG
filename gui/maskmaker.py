@@ -228,16 +228,15 @@ def read_alpha(path):
 
 # --- tracing ---------------------------------------------------------------
 
-def _runs_per_row(pixels, width, height, threshold, invert):
+def _runs_per_row(alpha, width, height, threshold):
     """Each row's stretches of masked pixels, as (start, end) column pairs.
 
     Thresholding with translate() and finding the stretches with a regular
     expression both run at C speed, which matters: doing it pixel by pixel in
     Python would be minutes on a 4K frame, and this is milliseconds.
     """
-    inside, outside = (b"\x00", b"\x01") if invert else (b"\x01", b"\x00")
-    table = outside * threshold + inside * (256 - threshold)
-    flat = bytes(pixels).translate(table)
+    table = b"\x00" * threshold + b"\x01" * (256 - threshold)
+    flat = bytes(alpha).translate(table)
     pattern = re.compile(b"\x01+")
     return [[(m.start(), m.end()) for m in pattern.finditer(flat[y * width:(y + 1) * width])]
             for y in range(height)]
@@ -395,14 +394,12 @@ def simplify(ring, epsilon):
     return out if len(out) >= 3 else base
 
 
-def trace(pixels, width, height, threshold=THRESHOLD, invert=False,
-          epsilon=SIMPLIFY, min_area=MIN_AREA):
-    """The masked areas, as rings of points in pixel coordinates. `pixels` is
+def trace(alpha, width, height, threshold=THRESHOLD, epsilon=SIMPLIFY):
+    """The masked areas, as rings of points in pixel coordinates. `alpha` is
     the alpha channel: 255 is solid, 0 is see-through."""
-    rows = _runs_per_row(pixels, width, height, threshold, invert)
     rings = []
-    for ring in _chain(_boundary_edges(rows)):
-        if abs(_area(ring)) >= min_area:
+    for ring in _chain(_boundary_edges(_runs_per_row(alpha, width, height, threshold))):
+        if abs(_area(ring)) >= MIN_AREA:
             rings.append(simplify(ring, epsilon))
     return rings
 
@@ -419,7 +416,7 @@ def _escape(text):
                 .replace(">", "&gt;").replace('"', "&quot;"))
 
 
-def build_xml(rings, width, height, name, index=1, invert=False, blur=0.0):
+def build_xml(rings, width, height, name, invert=False):
     """The rings as a <Masks> document, in the same shape Hippotizer writes.
 
     One unit is one pixel and the origin is the middle of the image. xres and
@@ -428,10 +425,9 @@ def build_xml(rings, width, height, name, index=1, invert=False, blur=0.0):
     """
     half_w, half_h = width / 2.0, height / 2.0
     lines = ["<Masks>",
-             '<Mask index="%s" name="%s" invert="%s" alpha="false" Blur="%s" '
+             '<Mask index="1" name="%s" invert="%s" alpha="false" Blur="0" '
              'showpoints="false" xres="%d" yres="%d">'
-             % (index, _escape(name), "true" if invert else "false",
-                _number(blur), DECL_W, DECL_H)]
+             % (_escape(name), "true" if invert else "false", DECL_W, DECL_H)]
 
     for ring in rings:
         lines.append('<Shape Level="255" guid="{%s}" angle="0" locked="false" Outline="false" '
@@ -461,8 +457,7 @@ def mask_path_for(png):
     return os.path.join(os.path.dirname(os.path.abspath(png)), "Masks.xml")
 
 
-def convert(png, threshold=THRESHOLD, epsilon=SIMPLIFY, invert_input=False,
-            invert_mask=False):
+def convert(png, threshold=THRESHOLD, epsilon=SIMPLIFY, invert_mask=False):
     """Traces `png` and writes Masks.xml into the same folder as the image.
 
     An existing Masks.xml is moved aside to Masks.backup.xml rather than
@@ -474,9 +469,9 @@ def convert(png, threshold=THRESHOLD, epsilon=SIMPLIFY, invert_input=False,
         raise MaskError("%s is not there any more." % os.path.basename(png))
 
     width, height, alpha = read_alpha(png)
-    rings = trace(alpha, width, height, threshold, invert_input, epsilon)
+    rings = trace(alpha, width, height, threshold, epsilon)
     name = os.path.splitext(os.path.basename(png))[0]
-    text = build_xml(rings, width, height, name, invert=invert_mask)
+    text = build_xml(rings, width, height, name, invert_mask)
 
     xml = mask_path_for(png)
     backup = None
