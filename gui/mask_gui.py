@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""mask_gui.py -- pick a PNG, get a Masks.xml next to it. That is the whole app.
+"""mask_gui.py -- pick a PNG, get a Masks.xml next to it, pick another.
 
-One button, one line of feedback, nothing to configure. The image is taken at
-face value: whatever size it is, is the size the mask is for. The tools in
-build/ still expose every knob for when something needs pinning down.
+Nothing to build and nothing to install. The conversion is maskmaker.py,
+which is pure standard library, so this runs on a show laptop with a bare
+Python on it.
 
-    python3 gui/mask_gui.py        (or)   make gui
+    python3 gui/mask_gui.py        (or, on Windows, double-click Make Mask.bat)
 
-Needs tkinter, which ships with python.org and Windows Python. On Debian or
-Ubuntu it is a separate package: apt install python3-tk.
+One button, one line of feedback, nothing to configure. The image is taken
+at face value: whatever size it is, is the size the mask is for. The C++
+tools in tools/ still expose every knob, for when something needs pinning
+down -- but they are the plugin, not this.
 """
 
 import os
@@ -19,15 +21,15 @@ try:
     from tkinter import filedialog, ttk
 except ImportError:                                       # pragma: no cover - platform dependent
     sys.exit("This window needs tkinter, which is not installed.\n"
-             "  Debian/Ubuntu:  sudo apt install python3-tk\n"
              "  Windows/macOS:  it ships with python.org and Windows Python\n"
-             "The command-line tools in build/ work without it.")
+             "  Debian/Ubuntu:  sudo apt install python3-tk\n"
+             "Or convert from a shell instead:  python3 gui/maskmaker.py image.png")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import backend  # noqa: E402
+import maskmaker  # noqa: E402
 
 # AV Studio house tokens, dark.
-BG, PANEL, BORDER, TEXT, MUTED = "#1E1E2E", "#2A2A3C", "#3A3A4E", "#E8E8F0", "#9A9AB0"
+BG, BORDER, TEXT, MUTED = "#1E1E2E", "#3A3A4E", "#E8E8F0", "#9A9AB0"
 PRIMARY, ACCENT, OK, WARN, ERR = "#2C3E50", "#3498DB", "#27AE60", "#F39C12", "#C0392B"
 FONT = ("Segoe UI", 10) if sys.platform == "win32" else ("DejaVu Sans", 10)
 
@@ -37,7 +39,8 @@ class MaskGui(tk.Tk):
         super().__init__()
         self.title("PNG to Hippotizer Mask")
         self.configure(bg=BG)
-        self.minsize(520, 240)
+        self.minsize(520, 230)
+        self.last_folder = ""
         self._style()
 
         frame = ttk.Frame(self, padding=28)
@@ -53,11 +56,6 @@ class MaskGui(tk.Tk):
         self.status = ttk.Label(frame, text="", style="Muted.TLabel", wraplength=440,
                                 justify="left")
         self.status.grid(row=2, column=0, sticky="w")
-
-        if not backend.is_built():
-            self.say("The tools are not built yet. Run 'make' in %s, then reopen this window."
-                     % backend.REPO_ROOT, ERR)
-            self.button.state(["disabled"])
 
     def _style(self):
         style = ttk.Style(self)
@@ -76,14 +74,19 @@ class MaskGui(tk.Tk):
 
     def choose(self):
         png = filedialog.askopenfilename(title="Choose a PNG",
+                                         initialdir=self.last_folder or None,
                                          filetypes=[("PNG image", "*.png"),
                                                     ("All files", "*.*")])
         if not png:
             return
+        self.last_folder = os.path.dirname(png)   # so the next one opens where this one was
         self.say("Converting…")
-        self.update_idletasks()       # repaint before the conversion blocks (~0.2s)
+        self.update_idletasks()       # repaint before the conversion blocks (well under a second)
         try:
-            result = backend.convert_beside(png)
+            result = maskmaker.convert(png)
+        except maskmaker.MaskError as exc:
+            self.say(str(exc), ERR)
+            return
         except Exception as exc:                          # noqa: BLE001 - shown to the user
             self.say("Could not convert that image. %s" % exc, ERR)
             return
