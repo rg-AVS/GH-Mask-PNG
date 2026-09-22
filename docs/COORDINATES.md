@@ -3,8 +3,8 @@
 ## What the code does
 
 One unit is one pixel at the image's own resolution, and the origin is the
-middle of the image. That is the whole mapping, and it lives in two lines of
-`mask_trace.cpp` and one of `maskmaker.py`.
+middle of the image. That is the whole mapping, and it lives in one line of
+`maskmaker.py` (`masks_xml`, subtracting half the width and height).
 
 ## Why that, and not something else
 
@@ -70,6 +70,6 @@ miss.
 | The three `native` files line up | The code is right. Nothing to do. |
 | All three line up at 1024x768 only | Expected -- at the declared size all three scales are 1. The other resolutions are what discriminate. |
 | A `stretch` or `fit` file lines up instead | Take that mapping back out of git history and make it the one. |
-| One lines up but inverted | Geometry is right, mask sense is flipped: `png2mask --invert-mask`. |
-| One lines up but mirrored top to bottom | Scale is right, +Y points up. That was a `--yflip` flag, also in git history. |
+| One lines up but inverted | Geometry is right, only the mask sense is flipped: `invert="true"` on the `<Mask>`. |
+| One lines up but mirrored top to bottom | Scale is right, +Y points up: negate the Y in `masks_xml`. |
 | None line up anywhere | The mapping is not a centred scale at all. Send back a screenshot of one. |
