@@ -3,9 +3,11 @@
 //
 //   png2mask star.png Masks.xml --map native --simplify 1.0
 //
-// An RGBA PNG is read through its alpha channel (so a shape painted on a
-// transparent background works straight out of Photoshop); a grayscale or
-// RGB one is read by luma, white = masked.
+// ONLY the alpha channel is read: what is solid becomes mask, what is
+// see-through does not, and the colours are never looked at. A PNG with no
+// transparency is refused rather than guessed at -- artwork is usually not
+// white, so going on brightness would find the wrong thing, or the exact
+// inverse of what was drawn.
 #include <iostream>
 #include <string>
 #include "../src/mask/mask_model.h"
@@ -22,8 +24,8 @@ int main(int argc, char** argv) {
             "  --map MODE         native | stretch | fit   (default native)\n"
             "  --decl WxH         declared xres/yres to write (default 1024x768)\n"
             "  --yflip            emit +Y pointing up instead of down\n"
-            "  --threshold N      0-255, pixels >= N are inside the mask (default 128)\n"
-            "  --invert-input     treat DARK pixels as inside instead\n"
+            "  --threshold N      0-255, alpha >= N is inside the mask (default 128)\n"
+            "  --invert-input     mask the SEE-THROUGH areas instead\n"
             "  --invert-mask      set invert=\"true\" on the <Mask>\n"
             "  --simplify EPS     Douglas-Peucker tolerance in pixels (default 1.0; 0 = lossless)\n"
             "  --min-area N       drop traced regions under N pixels (default 4)\n"
@@ -40,7 +42,7 @@ int main(int argc, char** argv) {
         std::string xmlPath = cli.positional[1];
 
         int w = 0, h = 0;
-        auto gray = readGrayscalePng(pngPath, &w, &h);
+        auto gray = readMaskPng(pngPath, &w, &h);
 
         int declW = 1024, declH = 768;
         if (cli.has("--decl")) parseRes(cli.str("--decl", ""), declW, declH);
@@ -81,7 +83,7 @@ int main(int argc, char** argv) {
                   << ", map=" << spaceModeName(space.mode)
                   << ", " << mask.shapes.size() << " shape(s), " << nodes << " node(s))\n";
         if (mask.shapes.empty())
-            std::cout << "  note: nothing crossed the threshold -- try --threshold or --invert-input\n";
+            std::cout << "  note: nothing in it was solid enough to trace.\n";
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";
         return 1;

@@ -1,7 +1,11 @@
 Hippotizer mask coordinate test set
 ===================================
 
-Nine PNG + <Mask> pairs. Load each PNG as media at its own resolution,
+Nine PNG + <Mask> pairs. The PNGs are a white shape on a see-through
+background, which is what the converter reads: solid is mask,
+see-through is not, and the colours are never looked at.
+
+Load each PNG as media at its own resolution,
 apply the <Mask> of the same name from Masks.xml, and note which ones
 line up pixel-for-pixel. The mapping named in the matching file is the
 one Hippotizer actually uses.

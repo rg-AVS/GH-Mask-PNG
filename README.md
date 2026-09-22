@@ -54,9 +54,20 @@ A `Masks.xml` already in that folder is moved aside to `Masks.backup.xml`
 rather than being replaced, and only the first time, so a hand-written file
 is never lost and reconverting the same folder never nags.
 
-`maskmaker.py` reads 8- and 16-bit greyscale, RGB, RGBA and palette PNGs, at
-1, 2, 4, 8 or 16 bits per channel. It uses the alpha channel if the image has
-one, and brightness otherwise.
+### Transparency is the only thing read
+
+The mask is whatever is **not see-through**. The colours are never looked at,
+and a PNG with no transparency is refused with a message saying what to do
+about it, rather than guessed at.
+
+That is not fussiness. Artwork is usually not white -- the three shapes in
+`testset/Shapes/` are all darker than mid-grey -- so anything going on
+brightness would find almost nothing, or, on a dark shape over a light
+background, the exact inverse of what was drawn. Alpha is unambiguous.
+
+So: hide the background layer and export PNG-24 with Transparency ticked.
+Any PNG flavour carrying an alpha channel works -- RGBA, greyscale+alpha, or
+a palette with `tRNS` -- at 1, 2, 4, 8 or 16 bits per channel.
 
 The window needs tkinter, which ships with python.org and Windows Python
 (`apt install python3-tk` on Debian/Ubuntu). `maskmaker.py` does not need
@@ -80,8 +91,8 @@ down.
 
 | Tool | Does |
 |---|---|
-| `png2mask` | PNG -> `Masks.xml`. Traces the image into shapes. |
-| `mask2png` | `Masks.xml` -> PNG, at any resolution, under any mapping. |
+| `png2mask` | PNG -> `Masks.xml`. Traces the see-through edges into shapes. |
+| `mask2png` | `Masks.xml` -> PNG, at any resolution, under any mapping. Writes white-on-transparent, so a render is itself readable as mask artwork. |
 | `mask_diff` | Compares two PNGs and says whether they cancel. Exit code 0/2. |
 | `gen_testset` | Writes the nine-file coordinate test set. |
 | `bounds_report` | Where each shape lands, and whether it fits the canvas. |
@@ -96,6 +107,10 @@ Each takes `--help`. A typical pass:
 ./build/mask2png star.xml out/ --res 1920x1080 --map native
 ./build/mask_diff "Ref/Star for Mask.png" out/Star_for_Mask.png
 ```
+
+`png2mask` reads a PNG's alpha channel and nothing else, and refuses an image
+that has none. `readGrayscalePng` is still the lenient reader, but it is for
+comparing renders, not for reading artwork.
 
 ## The coordinate question
 

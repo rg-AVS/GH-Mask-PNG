@@ -15,10 +15,17 @@ inside the product and needs a compiler, and this is the thing an operator
 runs on a show laptop that has neither. tests/test_maskmaker.py holds the
 two to each other: same rings, same coordinates, pixel-identical renders.
 
+ALPHA IS THE ONLY THING READ. The mask is whatever is not see-through; the
+colours are never looked at. That is the point -- artwork is usually not
+white, and the three shapes in testset/Shapes are all darker than mid-grey,
+so anything that went on brightness would have found almost nothing. An
+image with no transparency is rejected with a message saying so, rather than
+quietly guessing from the picture and handing back a mask that could be the
+exact inverse of what was drawn.
+
 What it does, in order:
-  1. Decode the channel that defines the mask -- alpha if the image has one,
-     otherwise brightness.
-  2. Threshold it: anything at or above 128 is inside the mask.
+  1. Decode the alpha channel, and only the alpha channel.
+  2. Threshold it: half-opaque or more is inside the mask.
   3. Trace the boundary along the grid lines BETWEEN pixels, so the shape
      covers exactly the pixels that crossed the threshold.
   4. Drop points that sit on a straight line, then smooth what is left.
@@ -42,6 +49,12 @@ DECL_W, DECL_H = 1024, 768   # what Hippotizer writes as xres/yres, always
 GAMMA = 2.2            # what Hippotizer writes on a shape
 
 CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+WITH_ALPHA = (4, 6)        # greyscale+alpha and RGBA; a palette may carry tRNS
+
+NO_ALPHA = ("This PNG has no transparency in it, and transparency is the only thing "
+            "we read. Save it with the shapes on a see-through background -- in "
+            "Photoshop, hide the background layer and export as PNG-24 with "
+            "Transparency ticked.")
 
 
 class MaskError(Exception):
@@ -160,9 +173,14 @@ def _unpack_bits(packed, width, height, depth):
     return out
 
 
-def read_mask_channel(path):
-    """Returns (width, height, one byte per pixel) -- the channel that decides
-    what is masked. Alpha if the image has one, brightness otherwise."""
+def read_alpha(path):
+    """Returns (width, height, the alpha channel).
+
+    The alpha channel is the whole story: what is solid is mask, what is
+    see-through is not, and the colours are never read. An image that has no
+    alpha, or an alpha channel that is opaque everywhere, has nothing to say
+    and is refused rather than guessed at.
+    """
     (width, height, depth, colour, _comp, _filt, interlace), palette, trns, raw = \
         _read_chunks(path)
 
@@ -173,6 +191,8 @@ def read_mask_channel(path):
         raise MaskError("This PNG uses an image type we cannot read (colour type %d)." % colour)
     if depth not in (1, 2, 4, 8, 16):
         raise MaskError("This PNG uses %d bits per channel, which we cannot read." % depth)
+    if colour not in WITH_ALPHA and not (colour == 3 and trns):
+        raise MaskError(NO_ALPHA)
     if colour != 3 and depth < 8:
         raise MaskError("This PNG uses %d bits per channel, which we cannot read." % depth)
 
@@ -180,38 +200,30 @@ def read_mask_channel(path):
     sample = max(1, depth // 8)
     bpp = max(1, channels * depth // 8)
 
-    if depth < 8:                                   # packed palette indices
-        stride = (width * depth + 7) // 8
-        packed = _unfilter(raw, height, stride, 1, 0, 1)
-        indices = _unpack_bits(packed, width, height, depth)
-        scale = 255 // ((1 << depth) - 1)
-        indices = bytearray(v // scale for v in indices)
+    if colour == 3:
+        # Palette: decode the index stream, then look each entry's alpha up.
+        if palette is None:
+            raise MaskError("This PNG says it uses a palette but does not include one.")
+        if depth < 8:
+            stride = (width * depth + 7) // 8
+            scale = 255 // ((1 << depth) - 1)
+            indices = bytearray(v // scale for v in _unpack_bits(
+                _unfilter(raw, height, stride, 1, 0, 1), width, height, depth))
+        else:
+            indices = _unfilter(raw, height, width * sample, bpp, 0, sample)
+        entries = len(palette) // 3
+        table = bytes(trns[i] if i < len(trns) else 255 for i in range(entries))
+        lookup = bytes(table[i] if i < entries else 255 for i in range(256))
+        alpha = bytes(indices).translate(lookup)
     else:
         stride = width * channels * sample
-        if colour == 3:
-            indices = _unfilter(raw, height, stride, bpp, 0, sample)
-        elif colour in (4, 6):                      # has alpha: use it directly
-            return width, height, _unfilter(raw, height, stride, bpp,
-                                            (channels - 1) * sample, bpp)
-        elif colour == 0:                           # greyscale
-            return width, height, _unfilter(raw, height, stride, bpp, 0, bpp)
-        else:                                       # RGB: combine into brightness
-            red = _unfilter(raw, height, stride, bpp, 0, bpp)
-            green = _unfilter(raw, height, stride, bpp, sample, bpp)
-            blue = _unfilter(raw, height, stride, bpp, 2 * sample, bpp)
-            return width, height, bytearray(
-                (r * 299 + g * 587 + b * 114) // 1000 for r, g, b in zip(red, green, blue))
+        alpha = _unfilter(raw, height, stride, bpp, (channels - 1) * sample, bpp)
 
-    # Palette images: a palette entry's alpha decides, if the file gives one.
-    if palette is None:
-        raise MaskError("This PNG says it uses a palette but does not include one.")
-    if trns:
-        table = bytes(trns[i] if i < len(trns) else 255 for i in range(len(palette) // 3))
-    else:
-        table = bytes((palette[i * 3] * 299 + palette[i * 3 + 1] * 587 +
-                       palette[i * 3 + 2] * 114) // 1000 for i in range(len(palette) // 3))
-    lookup = bytes(table[i] if i < len(table) else 0 for i in range(256))
-    return width, height, bytes(indices).translate(lookup)
+    # min() runs at C speed, so asking costs nothing even on a 4K frame.
+    if min(alpha) == 255:
+        raise MaskError("Every pixel in this PNG is solid -- there is nothing "
+                        "see-through to cut around. " + NO_ALPHA)
+    return width, height, alpha
 
 
 # --- tracing ---------------------------------------------------------------
@@ -385,7 +397,8 @@ def simplify(ring, epsilon):
 
 def trace(pixels, width, height, threshold=THRESHOLD, invert=False,
           epsilon=SIMPLIFY, min_area=MIN_AREA):
-    """The masked areas of an image, as rings of points in pixel coordinates."""
+    """The masked areas, as rings of points in pixel coordinates. `pixels` is
+    the alpha channel: 255 is solid, 0 is see-through."""
     rows = _runs_per_row(pixels, width, height, threshold, invert)
     rings = []
     for ring in _chain(_boundary_edges(rows)):
@@ -460,8 +473,8 @@ def convert(png, threshold=THRESHOLD, epsilon=SIMPLIFY, invert_input=False,
     if not os.path.isfile(png):
         raise MaskError("%s is not there any more." % os.path.basename(png))
 
-    width, height, pixels = read_mask_channel(png)
-    rings = trace(pixels, width, height, threshold, invert_input, epsilon)
+    width, height, alpha = read_alpha(png)
+    rings = trace(alpha, width, height, threshold, invert_input, epsilon)
     name = os.path.splitext(os.path.basename(png))[0]
     text = build_xml(rings, width, height, name, invert=invert_mask)
 
@@ -492,11 +505,11 @@ def main(argv):
             print("%s: %s" % (os.path.basename(png), exc))
             failed = 1
             continue
-        if not r["shapes"]:
-            print("%s: nothing bright enough to trace." % os.path.basename(png))
         print("%s -> %s  (%d shape(s), %d point(s), from %dx%d)"
               % (os.path.basename(png), r["xml"], r["shapes"], r["points"],
                  r["width"], r["height"]))
+        if not r["shapes"]:
+            print("   note: nothing in it was solid enough to trace.")
     return failed
 
 

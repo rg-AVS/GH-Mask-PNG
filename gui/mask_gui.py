@@ -7,10 +7,11 @@ Python on it.
 
     python3 gui/mask_gui.py        (or, on Windows, double-click Make Mask.bat)
 
-One button, one line of feedback, nothing to configure. The image is taken
-at face value: whatever size it is, is the size the mask is for. The C++
-tools in tools/ still expose every knob, for when something needs pinning
-down -- but they are the plugin, not this.
+One button, one line of feedback, nothing to configure. The mask is whatever
+is not see-through in the image; its colours are never read. The image is
+taken at face value besides: whatever size it is, is the size the mask is
+for. The C++ tools in tools/ still expose every knob, for when something
+needs pinning down -- but they are the plugin, not this.
 """
 
 import os
@@ -47,7 +48,8 @@ class MaskGui(tk.Tk):
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(0, weight=1)
 
-        ttk.Label(frame, text="Pick a PNG. A Masks.xml is written into the same folder.",
+        ttk.Label(frame, text="Pick a PNG with a see-through background. A Masks.xml "
+                               "is written into the same folder.",
                   style="Lead.TLabel", wraplength=440, justify="left").grid(
                       row=0, column=0, sticky="w")
         self.button = ttk.Button(frame, text="Choose a PNG…", style="Primary.TButton",
@@ -92,8 +94,8 @@ class MaskGui(tk.Tk):
             return
 
         if not result["shapes"]:
-            self.say("Nothing in that image was bright enough to trace. If the shape is "
-                     "dark on a light background, invert it and try again.", WARN)
+            self.say("Nothing in that image was solid enough to trace -- it is "
+                     "see-through all over.", WARN)
             return
         note = "" if not result["backup"] else "  The mask that was there is kept as %s." % \
             os.path.basename(result["backup"])

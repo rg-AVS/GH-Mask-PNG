@@ -45,9 +45,9 @@ def section(name):
     print("\n=== %s ===" % name)
 
 
-def black_png(path, width=64, height=64):
-    """An all-black PNG, so the 'nothing to trace' path can be exercised."""
-    raw = b"".join(b"\x00" + b"\x00" * width for _ in range(height))
+def clear_png(path, width=64, height=64):
+    """A fully see-through PNG, so the 'nothing to trace' path is exercised."""
+    raw = b"".join(b"\x00" + bytes([20, 20, 20, 0]) * width for _ in range(height))
 
     def chunk(tag, data):
         body = tag + data
@@ -55,7 +55,7 @@ def black_png(path, width=64, height=64):
 
     with open(path, "wb") as f:
         f.write(b"\x89PNG\r\n\x1a\n")
-        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)))
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)))
         f.write(chunk(b"IDAT", zlib.compress(raw)))
         f.write(chunk(b"IEND", b""))
     return path
@@ -124,12 +124,26 @@ def main():
         section("An image with nothing in it says so")
         blank = os.path.join(tmp, "blank")
         os.makedirs(blank)
-        filedialog.answer = black_png(os.path.join(blank, "blank.png"))
+        filedialog.answer = clear_png(os.path.join(blank, "blank.png"))
         app.choose()
         check("warned, not errored", app.status.cget("foreground") == mask_gui.WARN,
               app.status.cget("text"))
-        check("says what to do", "invert" in app.status.cget("text").lower(),
+        check("says why", "see-through" in app.status.cget("text").lower(),
               app.status.cget("text"))
+
+        section("A PNG with no transparency says what to do about it")
+        solid = os.path.join(tmp, "solid")
+        os.makedirs(solid)
+        shutil.copy(os.path.join(ROOT, "docs", "coordinate_mismatch_visual.png"),
+                    os.path.join(solid, "solid.png"))
+        filedialog.answer = os.path.join(solid, "solid.png")
+        app.choose()
+        check("shown as an error", app.status.cget("foreground") == mask_gui.ERR,
+              app.status.cget("text"))
+        check("names the fix", "see-through" in app.status.cget("text").lower()
+              and "Photoshop" in app.status.cget("text"), app.status.cget("text"))
+        check("no Masks.xml was written",
+              not os.path.exists(os.path.join(solid, "Masks.xml")))
 
         section("A file that is not an image is reported in words")
         filedialog.answer = os.path.join(ROOT, "testset", "MANIFEST.txt")
