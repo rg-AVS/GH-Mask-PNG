@@ -357,11 +357,32 @@ std::vector<uint8_t> readGrayscalePng(const std::string& path, int* outW, int* o
     std::vector<uint8_t> gray((size_t)img.width * img.height);
     for (size_t i = 0; i < gray.size(); i++) {
         const uint8_t* px = img.pixels.data() + i * img.channels;
-        if (img.channels == 4) {
-            gray[i] = px[3]; // treat alpha as the mask value, matching png_writer's Gray8 convention
-        } else {
-            gray[i] = (uint8_t)(0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2]);
-        }
+        gray[i] = (img.channels == 4)
+                      ? px[3]
+                      : (uint8_t)(0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2]);
     }
     return gray;
+}
+
+std::vector<uint8_t> readMaskPng(const std::string& path, int* outW, int* outH) {
+    static const char* kNoAlpha =
+        "this PNG has no transparency in it, and transparency is the only thing we read. "
+        "Save it with the shapes on a see-through background (in Photoshop, hide the "
+        "background layer and export as PNG-24 with Transparency ticked).";
+
+    PngImage img = readPng(path);
+    if (outW) *outW = img.width;
+    if (outH) *outH = img.height;
+    if (img.channels != 4) throw std::runtime_error(kNoAlpha);
+
+    std::vector<uint8_t> alpha((size_t)img.width * img.height);
+    bool anyTransparent = false;
+    for (size_t i = 0; i < alpha.size(); i++) {
+        alpha[i] = img.pixels[i * 4 + 3];
+        if (alpha[i] != 255) anyTransparent = true;
+    }
+    if (!anyTransparent)
+        throw std::runtime_error(std::string("every pixel in this PNG is solid -- there is "
+                                             "nothing see-through to cut around. ") + kNoAlpha);
+    return alpha;
 }

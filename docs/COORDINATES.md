@@ -79,6 +79,9 @@ The same shape at three resolutions, each written out under all three
 mappings. Image and mask are generated from one set of coordinates, so a
 mismatch can only come from the mapping.
 
+The PNGs are a white shape on a see-through background -- solid is mask,
+see-through is not -- because that is the only thing the converter reads.
+
 The shape is asymmetric on purpose — a bite out of the **top-left** corner, a
 lone square hard into the **bottom-left**, and a square hole dead centre — so
 a mirrored or rotated result reads as obviously wrong rather than as a near

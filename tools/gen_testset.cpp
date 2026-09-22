@@ -105,7 +105,10 @@ int main(int argc, char** argv) {
         if (!manifest) throw std::runtime_error("cannot write into '" + outDir + "' -- does it exist?");
         manifest << "Hippotizer mask coordinate test set\n"
                     "===================================\n\n"
-                    "Nine PNG + <Mask> pairs. Load each PNG as media at its own resolution,\n"
+                    "Nine PNG + <Mask> pairs. The PNGs are a white shape on a see-through\n"
+                    "background, which is what the converter reads: solid is mask,\n"
+                    "see-through is not, and the colours are never looked at.\n\n"
+                    "Load each PNG as media at its own resolution,\n"
                     "apply the <Mask> of the same name from Masks.xml, and note which ones\n"
                     "line up pixel-for-pixel. The mapping named in the matching file is the\n"
                     "one Hippotizer actually uses.\n\n"
@@ -127,13 +130,19 @@ int main(int argc, char** argv) {
 
                 std::vector<float> coverage((size_t)w * h, 0.0f);
                 rasterizeRings(rings, w, h, coverage);
-                std::vector<uint8_t> gray(coverage.size());
-                for (size_t i = 0; i < coverage.size(); i++)
-                    gray[i] = (uint8_t)std::lround(std::min(1.0f, coverage[i]) * 255.0f);
+                // A white shape on a see-through background: the alpha channel
+                // carries the shape, which is the only thing png2mask reads,
+                // and it is what a designer would hand over. Over a black
+                // output it looks the same as a white-on-black image would.
+                std::vector<uint8_t> rgba(coverage.size() * 4);
+                for (size_t i = 0; i < coverage.size(); i++) {
+                    rgba[i * 4 + 0] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = 255;
+                    rgba[i * 4 + 3] = (uint8_t)std::lround(std::min(1.0f, coverage[i]) * 255.0f);
+                }
 
                 std::string name = two(n) + "_" + std::to_string(w) + "x" + std::to_string(h) +
                                     "_" + spaceModeName(mode);
-                writeGrayscalePng(outDir + "/" + name + ".png", gray, w, h);
+                writePng(outDir + "/" + name + ".png", rgba, w, h, PngColorType::RGBA8);
 
                 HippoMask mask;
                 mask.index = std::to_string(n);

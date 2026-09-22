@@ -24,8 +24,14 @@ struct PngImage {
 
 PngImage readPng(const std::string& path);
 
-// Convenience: returns a single-channel 8-bit buffer. RGB/RGBA input is
-// converted to gray via the alpha channel if present (i.e. treats the
-// image as a soft mask, matching what png_writer's Gray8 output means),
-// otherwise via standard luma (0.299R + 0.587G + 0.114B).
+// Returns the image as a single-channel 8-bit buffer, for comparing renders:
+// gray as-is, RGBA by its alpha, RGB by luma (0.299R + 0.587G + 0.114B).
+// This is the lenient one -- to read artwork as a mask, use readMaskPng.
 std::vector<uint8_t> readGrayscalePng(const std::string& path, int* outW = nullptr, int* outH = nullptr);
+
+// Returns a PNG's ALPHA CHANNEL, and nothing else: what is solid is mask,
+// what is see-through is not, and the colours are never read. Artwork is
+// usually not white, so going on brightness would find the wrong thing -- or
+// the exact inverse of what was drawn. Throws std::runtime_error, naming what
+// to do about it, if the image has no alpha or is opaque everywhere.
+std::vector<uint8_t> readMaskPng(const std::string& path, int* outW = nullptr, int* outH = nullptr);

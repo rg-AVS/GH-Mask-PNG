@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """test_maskmaker.py -- checks for gui/maskmaker.py, the pure-Python converter.
 
-Two halves. The first needs nothing but Python: image formats, thresholding,
-hole winding, the XML that comes out, and the error messages. The second
-holds maskmaker to src/mask/mask_trace.cpp -- same rings, pixel-identical
-renders -- and is skipped if the C++ has not been built, since the whole
-point of maskmaker is that it runs where there is no compiler.
+Two halves. The first needs nothing but Python: reading alpha out of every
+PNG flavour, refusing images that have none, hole winding, the XML that comes
+out, and the error messages. The second holds maskmaker to
+src/mask/mask_trace.cpp -- same rings, pixel-identical renders -- and is
+skipped if the C++ has not been built, since the whole point of maskmaker is
+that it runs where there is no compiler.
 
     python3 tests/test_maskmaker.py
 """
@@ -68,9 +69,16 @@ def write_png(path, width, height, depth, colour, rows, palette=None, trns=None,
     return path
 
 
-def square_rows(width, height, box, value=255, background=0, channels=1, alpha_at=None):
-    """A solid rectangle, in whatever channel layout is asked for."""
+def square_rows(width, height, box, value=255, background=0, channels=1, alpha_at=None,
+                colour=None):
+    """A solid rectangle, in whatever channel layout is asked for.
+
+    With alpha_at set, the rectangle is carried by the ALPHA channel and the
+    colour channels are whatever `colour` says -- deliberately dark by
+    default, so any test that accidentally went on brightness would fail.
+    """
     x0, y0, x1, y1 = box
+    fill = colour if colour is not None else 20
     rows = []
     for y in range(height):
         row = bytearray()
@@ -79,11 +87,11 @@ def square_rows(width, height, box, value=255, background=0, channels=1, alpha_a
             level = value if inside else background
             if channels == 1:
                 row.append(level)
+            elif alpha_at is None:
+                row.extend([level] * channels)
             else:
-                pixel = [level] * channels
-                if alpha_at is not None:
-                    pixel = [255] * channels
-                    pixel[alpha_at] = level
+                pixel = [fill] * channels
+                pixel[alpha_at] = level
                 row.extend(pixel)
         rows.append(row)
     return rows
@@ -114,15 +122,12 @@ def area(ring):
 def main():
     tmp = tempfile.mkdtemp(prefix="maskmaker-test-")
     try:
-        section("Image formats it has to read")
+        section("Reading alpha, whatever the PNG flavour")
+        want = canonical([(10, 5), (30, 5), (30, 25), (10, 25)])
         cases = [
-            ("8-bit greyscale", dict(depth=8, colour=0,
-                                     rows=square_rows(40, 30, (10, 5, 30, 25)))),
-            ("8-bit RGB", dict(depth=8, colour=2,
-                               rows=square_rows(40, 30, (10, 5, 30, 25), channels=3))),
-            ("8-bit RGBA, mask in alpha", dict(depth=8, colour=6,
-                                               rows=square_rows(40, 30, (10, 5, 30, 25),
-                                                                channels=4, alpha_at=3))),
+            ("8-bit RGBA", dict(depth=8, colour=6,
+                                rows=square_rows(40, 30, (10, 5, 30, 25),
+                                                 channels=4, alpha_at=3))),
             ("8-bit grey+alpha", dict(depth=8, colour=4,
                                       rows=square_rows(40, 30, (10, 5, 30, 25),
                                                        channels=2, alpha_at=1))),
@@ -130,55 +135,101 @@ def main():
         for label, kw in cases:
             path = write_png(os.path.join(tmp, label.replace(" ", "_") + ".png"),
                              40, 30, **kw)
-            width, height, pixels = maskmaker.read_mask_channel(path)
-            rings = maskmaker.trace(pixels, width, height)
-            ok = (len(rings) == 1 and len(rings[0]) == 4 and
-                  canonical(rings[0]) == canonical([(10, 5), (30, 5), (30, 25), (10, 25)]))
-            check(label, ok, rings)
+            width, height, alpha = maskmaker.read_alpha(path)
+            rings = maskmaker.trace(alpha, width, height)
+            check(label, len(rings) == 1 and canonical(rings[0]) == want, rings)
 
-        # 16-bit: the high byte of each sample is what we read.
+        # 16-bit RGBA: the high byte of each sample is what we read.
         rows16 = []
         for y in range(30):
             row = bytearray()
             for x in range(40):
                 level = 255 if 10 <= x < 30 and 5 <= y < 25 else 0
-                row.extend((level, 0))
+                row.extend((0, 0, 20, 0, 20, 0, level, 0))   # dark colour, alpha last
             rows16.append(row)
-        path = write_png(os.path.join(tmp, "grey16.png"), 40, 30, 16, 0, rows16)
-        width, height, pixels = maskmaker.read_mask_channel(path)
-        check("16-bit greyscale", len(maskmaker.trace(pixels, width, height)) == 1)
+        path = write_png(os.path.join(tmp, "rgba16.png"), 40, 30, 16, 6, rows16)
+        width, height, alpha = maskmaker.read_alpha(path)
+        check("16-bit RGBA", canonical(maskmaker.trace(alpha, width, height)[0]) == want)
 
-        # Palette with transparency: entry 0 is see-through, entry 1 is solid.
+        # Palette with tRNS: entry 0 is see-through, entry 1 is solid -- and
+        # both are dark, so brightness would find nothing.
         rows = [bytearray(1 if 10 <= x < 30 and 5 <= y < 25 else 0 for x in range(40))
                 for y in range(30)]
         path = write_png(os.path.join(tmp, "palette.png"), 40, 30, 8, 3, rows,
-                         palette=[0, 0, 0, 255, 255, 255], trns=[0, 255])
-        width, height, pixels = maskmaker.read_mask_channel(path)
-        check("palette with transparency", len(maskmaker.trace(pixels, width, height)) == 1)
+                         palette=[10, 10, 10, 20, 20, 20], trns=[0, 255])
+        width, height, alpha = maskmaker.read_alpha(path)
+        check("palette with tRNS", canonical(maskmaker.trace(alpha, width, height)[0]) == want)
 
-        # 1 bit per pixel, packed eight to a byte.
+        # 1 bit per pixel, packed eight to a byte, with tRNS.
         rows1 = []
         for y in range(30):
             bits = "".join("1" if 10 <= x < 30 and 5 <= y < 25 else "0" for x in range(40))
             rows1.append(bytearray(int(bits[i:i + 8].ljust(8, "0"), 2)
                                    for i in range(0, 40, 8)))
         path = write_png(os.path.join(tmp, "onebit.png"), 40, 30, 1, 3, rows1,
+                         palette=[10, 10, 10, 20, 20, 20], trns=[0, 255])
+        width, height, alpha = maskmaker.read_alpha(path)
+        check("1 bit per pixel with tRNS",
+              canonical(maskmaker.trace(alpha, width, height)[0]) == want)
+
+        section("Colour is never read")
+        # A dark shape on a see-through background, like real artwork. Anything
+        # that went on brightness would find nothing here at all.
+        path = write_png(os.path.join(tmp, "dark_on_clear.png"), 40, 30, 8, 6,
+                         square_rows(40, 30, (10, 5, 30, 25), channels=4, alpha_at=3,
+                                     colour=20))
+        width, height, alpha = maskmaker.read_alpha(path)
+        check("a dark shape on transparency is still found",
+              canonical(maskmaker.trace(alpha, width, height)[0]) == want)
+
+        # The same shape drawn white on an opaque white background: brightness
+        # would see nothing, and alpha correctly refuses the file.
+        path = write_png(os.path.join(tmp, "white_on_white.png"), 40, 30, 8, 6,
+                         square_rows(40, 30, (10, 5, 30, 25), value=255, background=255,
+                                     channels=4, alpha_at=3))
+        try:
+            maskmaker.read_alpha(path)
+            check("an opaque image is refused", False, "no error raised")
+        except maskmaker.MaskError as exc:
+            check("an opaque image is refused", "nothing see-through" in str(exc), str(exc))
+
+        section("Images with no alpha at all are refused")
+        for label, kw in (("8-bit greyscale", dict(depth=8, colour=0,
+                                                   rows=square_rows(40, 30, (10, 5, 30, 25)))),
+                          ("8-bit RGB", dict(depth=8, colour=2,
+                                             rows=square_rows(40, 30, (10, 5, 30, 25),
+                                                              channels=3)))):
+            path = write_png(os.path.join(tmp, "noalpha_" + label[-4:] + ".png"), 40, 30, **kw)
+            try:
+                maskmaker.read_alpha(path)
+                check(label, False, "no error raised")
+            except maskmaker.MaskError as exc:
+                check(label, "no transparency" in str(exc) and "see-through" in str(exc),
+                      str(exc))
+
+        rows = [bytearray(1 if x > 20 else 0 for x in range(40)) for y in range(30)]
+        path = write_png(os.path.join(tmp, "palette_notrns.png"), 40, 30, 8, 3, rows,
                          palette=[0, 0, 0, 255, 255, 255])
-        width, height, pixels = maskmaker.read_mask_channel(path)
-        check("1 bit per pixel", len(maskmaker.trace(pixels, width, height)) == 1)
+        try:
+            maskmaker.read_alpha(path)
+            check("palette without tRNS", False, "no error raised")
+        except maskmaker.MaskError as exc:
+            check("palette without tRNS", "no transparency" in str(exc), str(exc))
 
         section("Every row filter is undone correctly")
-        # Same image written five times, each row using one filter type.
-        plain = square_rows(40, 30, (10, 5, 30, 25))
+        # Same image written five times, each row using one filter type. RGBA,
+        # so the per-channel unfilter is what is on trial, not a shortcut.
+        plain = square_rows(40, 30, (10, 5, 30, 25), channels=4, alpha_at=3)
+        span = 40 * 4
         for kind in range(5):
             encoded = []
-            previous = bytearray(40)
+            previous = bytearray(span)
             for row in plain:
-                line = bytearray(40)
-                for i in range(40):
-                    left = row[i - 1] if i else 0
+                line = bytearray(span)
+                for i in range(span):
+                    left = row[i - 4] if i >= 4 else 0
                     up = previous[i]
-                    upleft = previous[i - 1] if i else 0
+                    upleft = previous[i - 4] if i >= 4 else 0
                     if kind == 0:
                         line[i] = row[i]
                     elif kind == 1:
@@ -204,14 +255,13 @@ def main():
             path = os.path.join(tmp, "filter%d.png" % kind)
             with open(path, "wb") as f:
                 f.write(b"\x89PNG\r\n\x1a\n")
-                f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", 40, 30, 8, 0, 0, 0, 0)))
+                f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", 40, 30, 8, 6, 0, 0, 0)))
                 f.write(chunk(b"IDAT", zlib.compress(b"".join(encoded))))
                 f.write(chunk(b"IEND", b""))
-            width, height, pixels = maskmaker.read_mask_channel(path)
-            rings = maskmaker.trace(pixels, width, height)
+            width, height, alpha = maskmaker.read_alpha(path)
+            rings = maskmaker.trace(alpha, width, height)
             check("filter type %d" % kind,
-                  len(rings) == 1 and canonical(rings[0]) ==
-                  canonical([(10, 5), (30, 5), (30, 25), (10, 25)]), rings)
+                  len(rings) == 1 and canonical(rings[0]) == want, rings)
 
         section("Tracing")
         # A square with a square hole: two rings, wound opposite ways.
@@ -221,11 +271,11 @@ def main():
             for x in range(40):
                 solid = 5 <= x < 35 and 5 <= y < 35
                 hole = 15 <= x < 25 and 15 <= y < 25
-                row.append(255 if solid and not hole else 0)
+                row.extend((20, 20, 20, 255 if solid and not hole else 0))
             rows.append(row)
-        path = write_png(os.path.join(tmp, "donut.png"), 40, 40, 8, 0, rows)
-        width, height, pixels = maskmaker.read_mask_channel(path)
-        rings = maskmaker.trace(pixels, width, height)
+        path = write_png(os.path.join(tmp, "donut.png"), 40, 40, 8, 6, rows)
+        width, height, alpha = maskmaker.read_alpha(path)
+        rings = maskmaker.trace(alpha, width, height)
         check("a hole is traced as its own ring", len(rings) == 2, rings)
         if len(rings) == 2:
             outer, inner = sorted(rings, key=lambda r: -abs(area(r)))
@@ -234,26 +284,26 @@ def main():
             check("the hole is the right size", abs(abs(area(inner)) - 100) < 1e-9,
                   area(inner))
 
-        path = write_png(os.path.join(tmp, "blank.png"), 40, 30, 8, 0,
-                         square_rows(40, 30, (0, 0, 0, 0)))
-        width, height, pixels = maskmaker.read_mask_channel(path)
-        check("an empty image traces to nothing", maskmaker.trace(pixels, width, height) == [])
+        path = write_png(os.path.join(tmp, "clear.png"), 40, 30, 8, 6,
+                         square_rows(40, 30, (0, 0, 0, 0), channels=4, alpha_at=3))
+        width, height, alpha = maskmaker.read_alpha(path)
+        check("a fully see-through image traces to nothing",
+              maskmaker.trace(alpha, width, height) == [])
 
-        path = write_png(os.path.join(tmp, "specks.png"), 40, 30, 8, 0,
-                         square_rows(40, 30, (5, 5, 6, 6)))
-        width, height, pixels = maskmaker.read_mask_channel(path)
-        check("a single-pixel speck is ignored",
-              maskmaker.trace(pixels, width, height) == [])
+        path = write_png(os.path.join(tmp, "specks.png"), 40, 30, 8, 6,
+                         square_rows(40, 30, (5, 5, 6, 6), channels=4, alpha_at=3))
+        width, height, alpha = maskmaker.read_alpha(path)
+        check("a single-pixel speck is ignored", maskmaker.trace(alpha, width, height) == [])
 
-        path = write_png(os.path.join(tmp, "grey.png"), 40, 30, 8, 0,
-                         square_rows(40, 30, (10, 5, 30, 25), value=100))
-        width, height, pixels = maskmaker.read_mask_channel(path)
-        check("below the threshold is not masked",
-              maskmaker.trace(pixels, width, height) == [])
-        check("threshold is adjustable",
-              len(maskmaker.trace(pixels, width, height, threshold=90)) == 1)
-        check("inverting picks up the background",
-              len(maskmaker.trace(pixels, width, height, invert=True)) == 1)
+        path = write_png(os.path.join(tmp, "faint.png"), 40, 30, 8, 6,
+                         square_rows(40, 30, (10, 5, 30, 25), value=100,
+                                     channels=4, alpha_at=3))
+        width, height, alpha = maskmaker.read_alpha(path)
+        check("mostly see-through is not masked", maskmaker.trace(alpha, width, height) == [])
+        check("the threshold is adjustable",
+              len(maskmaker.trace(alpha, width, height, threshold=90)) == 1)
+        check("inverting masks the see-through part instead",
+              len(maskmaker.trace(alpha, width, height, invert=True)) == 1)
 
         section("Smoothing")
         square = [(10, 5), (30, 5), (30, 25), (10, 25)]
@@ -269,7 +319,8 @@ def main():
         work = os.path.join(tmp, "show")
         os.makedirs(work)
         png = os.path.join(work, "Front Wall.png")
-        write_png(png, 40, 30, 8, 0, square_rows(40, 30, (10, 5, 30, 25)))
+        write_png(png, 40, 30, 8, 6,
+                  square_rows(40, 30, (10, 5, 30, 25), channels=4, alpha_at=3))
         result = maskmaker.convert(png)
         check("written beside the image", result["xml"] == os.path.join(work, "Masks.xml"))
         check("nothing backed up on a fresh folder", result["backup"] is None)
@@ -326,8 +377,9 @@ def main():
         except maskmaker.MaskError as exc:
             check("a truncated file", "damaged" in str(exc) or "shorter" in str(exc), str(exc))
 
-        interlaced = write_png(os.path.join(tmp, "interlaced.png"), 40, 30, 8, 0,
-                               square_rows(40, 30, (10, 5, 30, 25)), interlace=1)
+        interlaced = write_png(os.path.join(tmp, "interlaced.png"), 40, 30, 8, 6,
+                               square_rows(40, 30, (10, 5, 30, 25), channels=4, alpha_at=3),
+                               interlace=1)
         try:
             maskmaker.convert(interlaced)
             check("an interlaced PNG", False, "no error raised")
@@ -343,7 +395,8 @@ def main():
             skip("same rings as mask_trace.cpp", "C++ not built; run make")
             skip("pixel-identical renders", "C++ not built; run make")
         else:
-            samples = ["Ref/Star for Mask.png",
+            samples = ["testset/Shapes/PNG to MAsk.png",
+                       "Ref/Star for Mask.png",
                        "testset/01_1920x1080_native.png",
                        "testset/04_3840x1080_native.png",
                        "testset/07_1024x768_native.png"]

@@ -51,8 +51,18 @@ int main(int argc, char** argv) {
             if (cli.has("--invert")) m.invert = true;
 
             auto gray = renderMask(m, space, blurScale);
+
+            // White, with the mask in the alpha channel -- the same thing
+            // png2mask reads, so a render is itself valid mask artwork and the
+            // round trip closes. Opened in a viewer it is a white shape on a
+            // transparent background, which is what the mask is.
+            std::vector<uint8_t> rgba(gray.size() * 4);
+            for (size_t i = 0; i < gray.size(); i++) {
+                rgba[i * 4 + 0] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = 255;
+                rgba[i * 4 + 3] = gray[i];
+            }
             std::string outPath = outDir + "/" + sanitizeFilename(m.name) + ".png";
-            writeGrayscalePng(outPath, gray, w, h);
+            writePng(outPath, rgba, w, h, PngColorType::RGBA8);
             std::cout << "wrote " << outPath << "  (" << w << "x" << h
                       << ", map=" << spaceModeName(mode)
                       << ", " << m.shapes.size() << " shape(s), blur=" << m.blur << ")\n";
